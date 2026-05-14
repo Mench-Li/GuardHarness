@@ -1,0 +1,57 @@
+manual_mode:
+  version: "1.0"
+
+  commands:
+    init-feature:
+      skill: brainstorming
+      output_dir: "docs/superpowers/specs/"
+      prompt: |
+        Start brainstorming for a new feature.
+        Follow the brainstorming skill workflow.
+        Output: spec.md in output_dir.
+      agent_guard:
+        state_transition: "Inbox"
+        gates: ["g1_plan_valid", "g2_complexity_budget"]
+        note: "Run 'agent-guard init TASK-xxx --spec <path>' to register task state"
+
+    plan-feature:
+      skill: writing-plans
+      input: "{spec_path}"
+      output_dir: "docs/superpowers/plans/"
+      constraints: ".harness/superpowers/plan-schema.yaml"
+      agent_guard:
+        state_transition: "Inbox -> Plan Ready"
+        gates: ["g1_plan_valid", "g2_complexity_budget"]
+        note: "Run 'agent-guard plan TASK-xxx --approve' after plan review"
+
+    execute-plan:
+      skill: executing-plans
+      input: "{plan_path}"
+      worktree: ".worktrees/"
+      agent_guard:
+        state_transition: "Plan Ready -> Executing"
+        gate: "g3_entropy_check"
+        note: "Run 'agent-guard execute TASK-xxx' before starting code generation"
+
+    finish-branch:
+      skill: finishing-a-development-branch
+      policy: ".harness/superpowers/finishing-policy.yaml"
+      agent_guard:
+        state_transition: "Entropy Review -> Done"
+        gates: ["g5_verification_proof"]
+        note: "Run 'agent-guard finish TASK-xxx' after all verifications pass"
+
+    fix-bug:
+      skill: test-driven-development
+      mode: bugfix
+      agent_guard:
+        state_transition: "Inbox -> Executing"
+        gate: "g3_entropy_check"
+        note: "Optional: register bug fix task with 'agent-guard init TASK-xxx'"
+
+    reflect:
+      skill: memory-reflection
+      input: ".claude/memory/"
+      output: "CLAUDE.md updated blocks + /memory User Memory suggestions"
+      agent_guard:
+        note: "Can be run from any state; does not affect task lifecycle"

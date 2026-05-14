@@ -1,0 +1,54 @@
+plan_schema:
+  version: "1.0"
+  description: |
+    本文件定义计划的规范约束，供 AI 和人类审查时参考。
+    validation_rules 中的 check 字段为自然语言描述，
+    实际校验由加载本 schema 的 skill 在运行时执行。
+
+  constraints:
+    - no_todos: true
+    - no_placeholders: true
+    - test_first: true
+    - max_step_duration: 5min
+
+  required_sections:
+    - task_description
+    - file_changes
+    - test_plan
+    - verification_command
+    - success_criteria
+    - state_diagram
+    - gate_checkpoints
+
+  validation_rules:
+    - rule: "每个任务必须有测试步骤"
+      check: "步骤文本中应显式包含测试相关动作，如 'write test'、'run pytest'、'verify coverage'"
+      severity: error
+
+    - rule: "禁止模糊描述"
+      check: "步骤文本中不得出现模糊词汇：适当、可能、考虑、稍后、大概、尽量"
+      severity: error
+
+    - rule: "文件路径建议从根目录开始"
+      check: "文件路径建议以 src/、tests/、app/ 等项目根目录前缀开头，避免相对路径歧义"
+      severity: warning
+
+    - rule: "禁止 TODO 占位符"
+      check: "全文不得出现 TODO、TBD、FIXME、XXX 等占位符标记"
+      severity: error
+
+    - rule: "必须包含验证命令"
+      check: "任务步骤中应包含可执行的验证命令，格式如 'Run: <command>'"
+      severity: warning
+
+    - rule: "任务描述必须是可验证的成功标准，而非命令式描述"
+      check: "任务描述应包含 Goal + Verify 格式，或明确的通过/失败判定条件。避免纯命令式描述如 'Add validation'"
+      severity: warning
+
+    - rule: "计划必须包含 Agent-Guard 状态图"
+      check: "计划文档必须包含 Mermaid 或 PlantUML 格式的状态流图，展示本功能在 Agent-Guard 8 状态机中的流转路径（Inbox → Plan Ready → Executing → Patch Ready → Entropy Review → Done，以及可能的旁路状态）"
+      severity: error
+
+    - rule: "每个 Task 必须标注 Gate 检查点"
+      check: "每个 Task 的头部或尾部必须标注对应的 Gate 检查点（如 G1 Plan Valid / G2 Complexity Budget / G3 Entropy Check / G4 Surgical Check / G5 Verification Proof），说明该 Task 完成后需要触发哪个 Gate"
+      severity: error

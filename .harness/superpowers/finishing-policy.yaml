@@ -1,0 +1,100 @@
+auto_decision_rules:
+  - name: "auto_merge"
+    condition:
+      - tests_pass: true
+      - coverage_gte: 80
+      - no_critical_lint_errors: true
+      - branch_behind_main: 0
+    action: merge_local
+    post_action:
+      - write_observation: true
+      - update_claude_md: true
+      - detect_entropy: true
+    notify: true
+
+  - name: "create_pr"
+    condition:
+      - tests_pass: true
+      - complexity_score_lt: high
+    action: create_pr
+    require_approval: true
+    post_action:
+      - write_observation: true
+      - update_claude_md: true
+      - detect_entropy: true
+    notify: true
+
+  - name: "keep_branch"
+    condition:
+      - tests_fail: true
+    action: keep_branch
+    create_issue: true
+    post_action:
+      - write_observation: true
+      - detect_entropy: true
+
+proof_of_work:
+  - type: ci_status
+    required: true
+  - type: test_coverage
+    threshold: 80
+  - type: complexity_analysis
+    max_cyclomatic: 10
+
+  - name: "auto_observe"
+    condition:
+      - always: true
+    action: run_script
+    script: "bash .claude/scripts/auto-observe.sh commit-summary"
+    description: "Automatically generate commit-based observation after every /finish-branch"
+
+  - name: "auto_observe_decision"
+    condition:
+      - files_changed_match: "(decision|design|architecture)"
+    action: run_script
+    script: "bash .claude/scripts/auto-observe.sh decision"
+    description: "Capture decision context when architecture/design files change"
+
+  - name: "auto_observe_entropy"
+    condition:
+      - complexity_score_gte: medium
+    action: run_script
+    script: "bash .claude/scripts/auto-observe.sh entropy"
+    description: "Capture entropy observation when complexity is elevated"
+
+  - name: "auto_observe_taste"
+    condition:
+      - review_feedback_present: true
+    action: run_script
+    script: "bash .claude/scripts/auto-observe.sh taste"
+    description: "Capture taste preference scaffolding after review feedback"
+
+  - name: "post_finish_branch_entropy_check"
+    condition:
+      - always: true
+    action: run_script
+    script: "bash .claude/scripts/detect-entropy.sh 7"
+    description: "Run entropy detection on last 7 days after every /finish-branch"
+
+  - name: "post_finish_branch_cluster"
+    condition:
+      - always: true
+    action: run_script
+    script: "bash .claude/scripts/cluster-observations.sh 30"
+    description: "Cluster recent observations to assist future reflection"
+
+memory:
+  observation_template: ".claude/memory/observations/YYYY-MM-DD-<feature>-retro.md"
+  update_claude_md_blocks:
+    - "recent-decisions"
+    - "architecture"
+  auto_observe:
+    enabled: true
+    modes:
+      - commit-summary
+      - test-failure
+      - lint-failure
+      - decision
+      - entropy
+      - taste
+    manual_review_required: true
