@@ -46,6 +46,7 @@ def check_branch_affects_docs():
         # 检查是否有配置、技能、策略、Agent-Guard 变更
         doc_relevant_patterns = [
             ".harness/",
+            ".harness/superpowers/skills/",
             ".claude/skills/",
             ".claude/scripts/",
             ".claude/settings.json",

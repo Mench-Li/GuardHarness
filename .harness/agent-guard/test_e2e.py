@@ -26,6 +26,8 @@ class TestAgentGuardE2E(unittest.TestCase):
         subprocess.run(["git", "init"], capture_output=True)
         subprocess.run(["git", "config", "user.email", "test@test.com"], capture_output=True)
         subprocess.run(["git", "config", "user.name", "Test"], capture_output=True)
+        Path(".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], capture_output=True)
 
         os.makedirs("docs/superpowers/plans", exist_ok=True)
         plan = (
@@ -43,6 +45,10 @@ class TestAgentGuardE2E(unittest.TestCase):
         )
         Path("docs/superpowers/plans/TASK-E2E-001-plan.md").write_text(plan, encoding="utf-8")
         Path("docs/superpowers/plans/TASK-SNAP-001-plan.md").write_text(plan, encoding="utf-8")
+
+        # Track all initial files so G4 only sees real task modifications
+        subprocess.run(["git", "add", "."], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], capture_output=True)
 
         self.cli = [sys.executable, str(self.ag_dir / "cli.py")]
 
@@ -209,13 +215,14 @@ class TestAgentGuardE2E(unittest.TestCase):
         r = self._run("init", "TASK-PARENT-001")
         self.assertEqual(r.returncode, 0, f"init failed: {r.stderr}")
 
-        # Create a plan with two clear sections with distinct names
+        # Create a plan that exceeds G2 complexity budget to trigger auto-split on plan --approve
+        files = "\n".join([f"- src/file{i}.py" for i in range(21)])
         plan = (
             "# Plan\n\n"
             "## task_description\n"
             "Add feature.\n\n"
             "## file_changes\n"
-            "- src/foo.py\n\n"
+            f"{files}\n\n"
             "## test_plan\n"
             "Run pytest\n\n"
             "## verification_command\n"
@@ -229,12 +236,16 @@ class TestAgentGuardE2E(unittest.TestCase):
         )
         Path("docs/superpowers/plans/TASK-PARENT-001-plan.md").write_text(plan, encoding="utf-8")
 
-        # Plan and approve parent
-        r = self._run("plan", "TASK-PARENT-001", "--approve")
+        # Plan and approve parent (G2 fails -> auto-split into child tasks)
+        r = self._run("plan", "TASK-PARENT-001", "--approve", "--auto-split")
         self.assertEqual(r.returncode, 0, f"plan failed: {r.stderr}")
         self.assertIn("G1 PASSED", r.stdout)
 
-        # Execute parent (triggers auto-split into child tasks)
+        # Baseline plan files so G4 doesn't flag them as off-plan modifications
+        subprocess.run(["git", "add", "docs/superpowers/plans/"], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "baseline plans"], capture_output=True)
+
+        # Execute parent
         r = self._run("execute", "TASK-PARENT-001", "--no-sandbox")
         self.assertEqual(r.returncode, 0, f"execute failed: {r.stderr}")
 
@@ -257,8 +268,16 @@ class TestAgentGuardE2E(unittest.TestCase):
         r = self._run("status", child_id)
         self.assertIn("Inbox", r.stdout, f"{child_id} should be in Inbox, got: {r.stdout}")
 
-        # Plan and execute child
-        Path(f"docs/superpowers/plans/{child_id}-plan.md").write_text(plan, encoding="utf-8")
+        # Plan and execute child with a minimal plan
+        child_plan = (
+            "# Plan\n\n"
+            "## task_description\nX\n\n"
+            "## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n"
+            "## verification_command\necho ok\n\n"
+            "## success_criteria\nY.\n"
+        )
+        Path(f"docs/superpowers/plans/{child_id}-plan.md").write_text(child_plan, encoding="utf-8")
         self._run("plan", child_id, "--approve")
         self._run("execute", child_id, "--no-sandbox")
         self._run("progress", child_id, "--step", "1", "--status", "done")
@@ -300,6 +319,35 @@ class TestAgentGuardE2E(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"execute with --holder failed: {r.stderr}")
         self.assertIn("agent-abc", r.stdout, f"holder agent-abc not in second execute output: {r.stdout}")
 
+    def test_execute_auto_claim_without_task_id(self):
+        """execute --no-sandbox (without task-id) should auto-claim and succeed."""
+        self._run("init", "TASK-AUTO-001")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/TASK-AUTO-001-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-AUTO-001", "--approve")
+
+        r = self._run("execute", "--no-sandbox")
+        self.assertEqual(r.returncode, 0, f"execute auto-claim failed: {r.stderr}")
+        self.assertIn("Auto-claimed task: TASK-AUTO-001", r.stdout)
+        self.assertIn("Task TASK-AUTO-001 -> Executing", r.stdout)
+
+    def test_claim_execute_without_holder(self):
+        """claim --execute without --holder should succeed using the claimed lease."""
+        self._run("init", "TASK-CLAIM-001")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/TASK-CLAIM-001-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-CLAIM-001", "--approve")
+
+        r = self._run("claim", "--execute")
+        self.assertEqual(r.returncode, 0, f"claim --execute failed: {r.stderr}")
+        self.assertIn("Task TASK-CLAIM-001 -> Executing", r.stdout)
+
     def test_progress_creates_timestamped_snapshot(self):
         """Every progress call should create a new timestamped snapshot file."""
         self._run("init", "TASK-SNAP-001")
@@ -330,7 +378,8 @@ class TestAgentGuardE2E(unittest.TestCase):
         )
         Path("docs/superpowers/plans/TASK-G4-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-G4-001", "--approve")
-        self._run("execute", "TASK-G4-001")
+        # Use --no-sandbox so g4 checks the current directory, not a worktree
+        self._run("execute", "TASK-G4-001", "--no-sandbox")
 
         # Create an off-plan file
         Path("src").mkdir(exist_ok=True)
@@ -398,6 +447,51 @@ class TestAgentGuardE2E(unittest.TestCase):
         # Task should still be Plan Ready, not Executing
         r = self._run("status", "TASK-ORD-001")
         self.assertIn("Plan Ready", r.stdout)
+
+    def test_execute_requires_holder_when_lease_exists(self):
+        """If an active lease exists, execute without --holder must be rejected."""
+        self._run("init", "TASK-HOLDER-001")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/TASK-HOLDER-001-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-HOLDER-001", "--approve")
+
+        # Claim with a specific holder
+        r = self._run("claim", "--execute", "--holder", "agent-abc")
+        self.assertEqual(r.returncode, 0, f"claim failed: {r.stderr}")
+
+        # Execute without --holder should fail because lease exists
+        r = self._run("execute", "TASK-HOLDER-001")
+        self.assertNotEqual(r.returncode, 0, "execute without --holder should fail when active lease exists")
+        self.assertIn("agent-abc", r.stdout + r.stderr)
+
+    def test_execute_replaces_expired_lease(self):
+        """An expired lease should be replaced by a new acquisition on execute."""
+        self._run("init", "TASK-EXP-001")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/TASK-EXP-001-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-EXP-001", "--approve")
+
+        # Acquire a lease with 0-second duration so it expires immediately
+        sys.path.insert(0, str(self.ag_dir))
+        from lease import LeaseManager
+        lm = LeaseManager()
+        old = lm.acquire("TASK-EXP-001", holder="agent-old", duration_seconds=0)
+        import time
+        time.sleep(0.2)
+
+        # Execute should succeed by replacing the expired lease
+        r = self._run("execute", "TASK-EXP-001", "--no-sandbox")
+        self.assertEqual(r.returncode, 0, f"execute failed: {r.stderr}")
+
+        # A new lease with a different holder should have been created
+        new = lm.get_lease("TASK-EXP-001")
+        self.assertNotEqual(new["holder"], "agent-old", "expired lease should be replaced with new holder")
 
 
 if __name__ == "__main__":

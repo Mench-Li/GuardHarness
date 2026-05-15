@@ -153,25 +153,46 @@ class SnapshotManager:
         task_id: str,
         plan_progress: PlanProgress,
     ) -> Snapshot:
-        """Create a step-level snapshot with a fresh timestamp."""
+        """Create a step-level snapshot with a fresh timestamp, preserving existing context."""
         task = self.state_machine.get_task(task_id)
         previous_state = ""
         if task.history:
             previous_state = task.history[-1].from_state.value
+
+        # Preserve existing snapshot context
+        old_lease = None
+        old_sub_tasks = None
+        old_sandbox = None
+        old_req_ctx = None
+        old_recovery = ""
+        try:
+            old = self.load_snapshot(task_id)
+            old_lease = old.lease
+            old_sub_tasks = old.sub_tasks
+            old_sandbox = old.sandbox
+            old_req_ctx = old.required_context
+            old_recovery = old.recovery_prompt
+        except Exception:
+            pass
 
         snapshot = Snapshot(
             task_id=task_id,
             current_state=task.current_state.value,
             previous_state=previous_state,
             transition_time=datetime.now(timezone(timedelta(hours=8))).isoformat(),
+            lease=old_lease or LeaseInfo(),
+            required_context=old_req_ctx or RequiredContext(),
             plan_progress=plan_progress,
+            recovery_prompt=old_recovery,
+            sub_tasks=old_sub_tasks or [],
+            sandbox=old_sandbox or SandboxInfo(),
         )
         self._write_snapshot(snapshot)
         return snapshot
 
     def _write_snapshot(self, snapshot: Snapshot) -> None:
         # Always generate a fresh timestamp to ensure every write creates a new file
-        ts = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d-%H%M%S-%f")
         path_ts = self._snapshot_path(snapshot.task_id, ts)
         with open(path_ts, "w", encoding="utf-8") as f:
             yaml.dump(snapshot.to_dict(), f, allow_unicode=True, sort_keys=False)

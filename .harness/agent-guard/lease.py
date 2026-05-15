@@ -7,6 +7,8 @@ Lease expiry marks the task as Interrupted, allowing another agent to resume.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -34,6 +36,36 @@ class LeaseManager:
 
     def _lease_file(self, task_id: str) -> Path:
         return self.leases_dir / f"{task_id}-lease.json"
+
+    def _acquire_lock(self) -> int:
+        """Acquire a cross-platform exclusive lock on the leases directory."""
+        lock_path = self.leases_dir / ".lock"
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX)
+        except (OSError, IOError):
+            os.close(fd)
+            raise
+        return fd
+
+    def _release_lock(self, fd: int) -> None:
+        """Release the leases directory lock."""
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        except (OSError, IOError):
+            pass
+        finally:
+            os.close(fd)
 
     def _atomic_write_lease(self, task_id: str, lease: dict[str, Any]) -> None:
         """Write lease atomically: temp file + rename (atomic on POSIX and Windows Vista+)."""
@@ -70,37 +102,40 @@ class LeaseManager:
         holder = holder or f"agent-{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone(timedelta(hours=8)))
 
-        existing = self.get_lease(task_id)
-        if existing:
-            existing_expires = datetime.fromisoformat(existing["expires_at"])
-            if now < existing_expires:
-                # Active lease exists
-                if existing["holder"] == holder:
-                    # Same holder: renew
-                    existing["expires_at"] = (now + timedelta(seconds=duration_seconds)).isoformat()
-                    existing["acquired_at"] = now.isoformat()
-                    existing["duration_seconds"] = duration_seconds
-                    self._atomic_write_lease(task_id, existing)
-                    return existing
-                # Different holder: deny
-                raise LeaseError(
-                    f"Lease held by {existing['holder']} until {existing['expires_at']}; "
-                    f"cannot acquire as {holder}"
-                )
-            # Expired lease falls through to create new
+        lock_fd = self._acquire_lock()
+        try:
+            existing = self.get_lease(task_id)
+            if existing:
+                existing_expires = datetime.fromisoformat(existing["expires_at"])
+                if now < existing_expires:
+                    # Active lease exists
+                    if existing["holder"] == holder:
+                        # Same holder: renew
+                        existing["expires_at"] = (now + timedelta(seconds=duration_seconds)).isoformat()
+                        existing["acquired_at"] = now.isoformat()
+                        existing["duration_seconds"] = duration_seconds
+                        self._atomic_write_lease(task_id, existing)
+                        return existing
+                    # Different holder: deny
+                    raise LeaseError(
+                        f"Lease held by {existing['holder']} until {existing['expires_at']}; "
+                        f"cannot acquire as {holder}"
+                    )
+                # Expired lease falls through to create new
 
-        lease = {
-            "task_id": task_id,
-            "holder": holder,
-            "acquired_at": now.isoformat(),
-            "expires_at": (now + timedelta(seconds=duration_seconds)).isoformat(),
-            "heartbeat_interval": self.DEFAULT_HEARTBEAT_INTERVAL,
-            "duration_seconds": duration_seconds,
-        }
+            lease = {
+                "task_id": task_id,
+                "holder": holder,
+                "acquired_at": now.isoformat(),
+                "expires_at": (now + timedelta(seconds=duration_seconds)).isoformat(),
+                "heartbeat_interval": self.DEFAULT_HEARTBEAT_INTERVAL,
+                "duration_seconds": duration_seconds,
+            }
 
-        self._atomic_write_lease(task_id, lease)
-
-        return lease
+            self._atomic_write_lease(task_id, lease)
+            return lease
+        finally:
+            self._release_lock(lock_fd)
 
     def get_lease(self, task_id: str) -> dict[str, Any] | None:
         """Read current lease for a task, or None if no lease exists."""

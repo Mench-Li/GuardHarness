@@ -204,7 +204,7 @@ Agent-Guard 是本项目的**状态驱动控制平面**，将原本基于 prompt
 | G1 Plan Valid | Inbox → Plan Ready | Plan 无占位符、无模糊词、包含必要章节 | **硬阻断** |
 | G2 Complexity Budget | Inbox → Plan Ready | 预估文件/步骤数不超预算 | 警告（Phase 1）|
 | G3 Entropy Check | Plan Ready → Executing / Needs Simplification → Executing | 运行 `detect-entropy.sh`，无新增复杂度反模式 | **硬阻断** |
-| G4 Surgical Check | Executing → Patch Ready | Diff 只修改相关文件，无 drive-by refactoring（沙盒环境下在 worktree 内检查）| 建议（Phase 1）|
+| G4 Surgical Check | Executing → Patch Ready | Diff 只修改相关文件，无 drive-by refactoring（沙盒环境下在 worktree 内检查）| **硬阻断** |
 | G5 Verification Proof | Entropy Review → Done | 测试通过 + lint 通过 + 覆盖率达标 | **硬阻断** |
 
 **Agent-Guard 命令：**
@@ -849,7 +849,7 @@ python .harness/agent-guard/cli.py review TASK-001    # Patch Ready → Entropy 
 **Gate（转换前自动执行）：**
 - **G3 Entropy Check** —— 运行 `detect-entropy.sh`，检测新增复杂度反模式（manager-proliferation、config-nesting、abstraction-explosion）
   - **如果失败**：任务进入 `Needs Simplification`，需简化后重新 `execute`
-- **G4 Surgical Check** —— 验证 git diff 只修改计划内文件，无 drive-by refactoring（Phase 1 建议模式）
+- **G4 Surgical Check**（硬阻断）—— 验证 git diff 只修改计划内文件，无 drive-by refactoring
 
 **加载技能：**
 1. `executing-plans`（手动执行）或 `subagent-driven-development`（子代理自动执行）
@@ -1521,7 +1521,7 @@ python .harness/agent-guard/cli.py gate-check <gate-name> <task-id>
 | G1 Plan Valid | Inbox → Plan Ready | 无占位符、无模糊词、必要章节齐全 | **阻断** |
 | G2 Complexity Budget | Inbox → Plan Ready | 文件数≤20、步骤数≤15 | 警告（不阻断），自动语义感知拆分并记录子任务到父 snapshot，检测重复 |
 | G3 Entropy Check | Plan Ready → Executing / Needs Simplification → Executing | 无新增复杂度反模式 | **阻断** |
-| G4 Surgical Check | Executing → Patch Ready | Diff 只改相关文件（沙盒环境下在 worktree 内检查）| 建议（不阻断）|
+| G4 Surgical Check | Executing → Patch Ready | Diff 只改相关文件（沙盒环境下在 worktree 内检查）| **硬阻断** |
 | G5 Verification Proof | Entropy Review → Done | 测试+lint+覆盖率全部通过 | **阻断** |
 
 ### 中断恢复流程

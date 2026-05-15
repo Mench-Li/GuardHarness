@@ -31,21 +31,32 @@ class SandboxManager:
     def _branch_name(self, task_id: str) -> str:
         return f"task/{task_id.lower().replace('_', '-')}"
 
+    def _is_git_worktree(self, path: Path) -> bool:
+        """Check if a directory is a valid git worktree."""
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            cwd=str(path),
+        )
+        return result.returncode == 0
+
     def create(self, task_id: str) -> dict[str, Any]:
         """Create a new worktree sandbox for the task."""
         worktree = self._worktree_path(task_id)
         branch = self._branch_name(task_id)
 
         if worktree.exists():
-            if worktree.is_dir():
-                # Reuse existing worktree
+            if worktree.is_dir() and self._is_git_worktree(worktree):
+                # Reuse existing valid worktree
                 return {
                     "task_id": task_id,
                     "worktree_path": str(worktree),
                     "branch": branch,
                     "created_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+                    "created": False,
                 }
-            raise SandboxError(f"Worktree path already exists and is not a directory for task {task_id}: {worktree}")
+            raise SandboxError(f"Worktree already exists for task {task_id}: {worktree}")
 
         gitignore = self.repo_root / ".gitignore"
         if gitignore.exists():
@@ -68,6 +79,7 @@ class SandboxManager:
             "worktree_path": str(worktree),
             "branch": branch,
             "created_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+            "created": True,
         }
 
     def destroy(self, task_id: str, extract_patch_first: bool = True) -> dict[str, Any]:
@@ -101,32 +113,48 @@ class SandboxManager:
         worktree = self._worktree_path(task_id)
         patch_file = self._patch_file(task_id)
 
-        result = subprocess.run(
-            ["git", "diff", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(worktree),
-        )
-        diff_output = result.stdout if result.returncode == 0 else ""
-
-        # Include untracked files
+        # Stage untracked files with intent-to-add so git diff HEAD formats them properly
         untracked_result = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard"],
             capture_output=True,
             text=True,
             cwd=str(worktree),
         )
+        if untracked_result.returncode != 0:
+            raise SandboxError(f"git ls-files failed: {untracked_result.stderr}")
         untracked = [line.strip() for line in untracked_result.stdout.splitlines() if line.strip()]
         for ufile in untracked:
-            fpath = worktree / ufile
-            if fpath.exists():
-                diff_output += f"\n# Untracked: {ufile}\n"
-                try:
-                    diff_output += fpath.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    diff_output += f"\n# Untracked (binary): {ufile}\n"
+            add_result = subprocess.run(
+                ["git", "add", "-N", ufile],
+                capture_output=True,
+                text=True,
+                cwd=str(worktree),
+            )
+            if add_result.returncode != 0:
+                raise SandboxError(f"git add -N failed: {add_result.stderr}")
 
-        patch_file.write_text(diff_output, encoding="utf-8")
+        result = subprocess.run(
+            ["git", "diff", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree),
+        )
+        if result.returncode != 0:
+            raise SandboxError(f"git diff failed: {result.stderr}")
+
+        patch_file.write_text(result.stdout, encoding="utf-8")
+
+        # Reset intent-to-add entries so they don't pollute the index
+        if untracked:
+            reset_result = subprocess.run(
+                ["git", "reset", "HEAD"] + untracked,
+                capture_output=True,
+                text=True,
+                cwd=str(worktree),
+            )
+            if reset_result.returncode != 0:
+                raise SandboxError(f"git reset failed: {reset_result.stderr}")
+
         return patch_file
 
     def get_sandbox(self, task_id: str) -> dict[str, Any] | None:

@@ -50,7 +50,7 @@ When all tasks in the plan are complete and tests pass.
 7. **Agent-Guard 状态转换：finish（必须）**
    - 运行 `python .harness/agent-guard/cli.py finish TASK-xxx`
    - 将任务状态从 Entropy Review → Done
-   - 如果之前未运行过 `review`，`finish` 会自动执行 review（G5 Verification Proof）
+   - `finish` 触发 G5 Verification Proof（运行验证命令并确认通过）
    - **不要跳过此步骤。** 任务只有到达 Done 才算正式完成。
 
 8. **Diff 审查（Surgical Check 确认）**

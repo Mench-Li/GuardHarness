@@ -100,7 +100,7 @@ Execute plan by dispatching fresh subagent per task, with two-stage review after
    - **Do NOT skip this step.** Snapshot 不会自动进入 Patch Ready。
 7. **State transition: review (MANDATORY)**
    - Run `python .harness/agent-guard/cli.py review TASK-xxx`
-   - Triggers G5 Verification Proof（运行验证命令并确认通过）并转换 Patch Ready → Entropy Review
+   - Transitions Patch Ready → Entropy Review (no gate check)
    - If review fails, fix issues and re-run `review`
    - **Do NOT skip this step.**
 8. Use superpowers:finishing-a-development-branch (calls `finish TASK-xxx` to reach Done)

@@ -114,7 +114,7 @@ def g2_complexity_budget(task_id: str, plan_path: str | None = None, **kwargs: A
     content = Path(plan_path).read_text(encoding="utf-8")
 
     # Count file references (heuristic)
-    file_refs = set(re.findall(r"`([^`]+\.(py|js|ts|go|rs|java|yaml|json|md|sh))`", content))
+    file_refs = set(re.findall(r"`([^`]+\.(tsx|jsx|yaml|yml|html|toml|json|java|css|py|js|ts|go|rs|md|sh))`", content))
     step_count = len(re.findall(r"^\s*[-*]\s+\d+\.", content, re.MULTILINE))
     if step_count == 0:
         step_count = len(re.findall(r"^\s*[-*]\s+", content, re.MULTILINE))
@@ -193,26 +193,58 @@ def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any)
     sandbox = mgr.get_sandbox(task_id)
     cwd = str(mgr._worktree_path(task_id)) if sandbox else "."
 
-    # If running inside a worktree sandbox, changes are made in the main repo,
-    # so fall back to the repository root for git diff.
-    diff_cwd = "." if sandbox else cwd
-
     try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--cached"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=diff_cwd if diff_cwd != "." else None,
-        )
-        if not result.stdout.strip():
+        # Collect modified files: staged + unstaged + untracked
+        modified: set[str] = set()
+
+        for diff_cmd in (["git", "diff", "--name-only", "--cached"], ["git", "diff", "--name-only"]):
             result = subprocess.run(
-                ["git", "diff", "--name-only"],
+                diff_cmd,
                 capture_output=True,
                 text=True,
                 timeout=30,
-                cwd=diff_cwd if diff_cwd != "." else None,
+                cwd=cwd if cwd != "." else None,
             )
+            if result.returncode != 0:
+                return {
+                    "passed": False,
+                    "message": f"Git diff failed: {result.stderr}",
+                    "details": {"error": result.stderr},
+                    "blocking": True,
+                }
+            modified.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+        # Untracked files
+        untracked_result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=cwd if cwd != "." else None,
+        )
+        if untracked_result.returncode != 0:
+            return {
+                "passed": False,
+                "message": f"Git ls-files failed: {untracked_result.stderr}",
+                "details": {"error": untracked_result.stderr},
+                "blocking": True,
+            }
+        modified.update(line.strip() for line in untracked_result.stdout.splitlines() if line.strip())
+
+        # Filter out Agent-Guard internal runtime artifacts and current task plan metadata
+        runtime_prefixes = (
+            ".harness/agent-guard/state/",
+            ".harness/agent-guard/snapshots/",
+            ".harness/agent-guard/leases/",
+        )
+        modified = {f for f in modified if not f.startswith(runtime_prefixes)}
+        # Only exempt the current task's own plan files, not all plans
+        own_plan_prefixes = (
+            f"docs/superpowers/plans/{task_id}-plan.md",
+            f"docs/superpowers/plans/{task_id}.md",
+        )
+        modified = {f for f in modified if not f.startswith(own_plan_prefixes)}
+
     except Exception as e:
         return {
             "passed": False,
@@ -220,8 +252,6 @@ def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any)
             "details": {"error": str(e)},
             "blocking": True,
         }
-
-    modified = [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
     if not modified:
         return {
@@ -231,8 +261,8 @@ def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any)
             "blocking": True,
         }
 
-    # Load allowed files from plan
-    allowed_files = set()
+    # Load allowed files from plan (strictly within file_changes section)
+    allowed_files: set[str] = set()
     if plan_path is None:
         candidates = [
             f"docs/superpowers/plans/{task_id}-plan.md",
@@ -245,25 +275,34 @@ def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any)
 
     if plan_path and Path(plan_path).exists():
         content = Path(plan_path).read_text(encoding="utf-8")
+        in_file_changes = False
         for line in content.splitlines():
-            m = re.search(r"[-*]\s+`?([^`\n]+\.(py|js|ts|go|rs|java|yaml|json|md|sh))`?", line)
-            if m:
-                allowed_files.add(m.group(1))
+            lower = line.lower()
+            if "file_changes" in lower or "file changes" in lower:
+                in_file_changes = True
+                continue
+            if in_file_changes:
+                # Stop at next section header
+                if line.startswith("## ") or line.startswith("# "):
+                    break
+                m = re.search(r"[-*]\s+`?([^`\n]+\.(tsx|jsx|yaml|yml|html|toml|json|java|css|py|js|ts|go|rs|md|sh))`?", line)
+                if m:
+                    allowed_files.add(m.group(1))
 
-    off_plan = [f for f in modified if f not in allowed_files]
+    off_plan = [f for f in sorted(modified) if f not in allowed_files]
 
     if off_plan:
         return {
             "passed": False,
             "message": f"Off-plan file modifications detected: {off_plan}",
-            "details": {"modified_files": modified, "off_plan": off_plan, "allowed_files": list(allowed_files)},
+            "details": {"modified_files": sorted(modified), "off_plan": off_plan, "allowed_files": list(allowed_files)},
             "blocking": True,
         }
 
     return {
         "passed": True,
         "message": "All modified files are within plan scope",
-        "details": {"modified_files": modified, "allowed_files": list(allowed_files)},
+        "details": {"modified_files": sorted(modified), "allowed_files": list(allowed_files)},
         "blocking": True,
     }
 

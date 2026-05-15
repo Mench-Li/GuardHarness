@@ -585,10 +585,12 @@ def cmd_plan(args) -> int:
     gates["g2_complexity_budget"] = g2
     if not g2["passed"]:
         print(f"G2 WARNING: {g2['message']}")
-        try:
-            resp = input("复杂度超出预算，是否自动拆分为多个子任务？[y/N] ")
-        except EOFError:
-            resp = "n"
+        resp = "y" if getattr(args, "auto_split", False) else "n"
+        if not resp == "y":
+            try:
+                resp = input("复杂度超出预算，是否自动拆分为多个子任务？[y/N] ")
+            except EOFError:
+                resp = "n"
         if resp.lower() == "y":
             plan_path = None
             candidates = [
@@ -631,55 +633,16 @@ def cmd_plan(args) -> int:
     return 0
 
 
-def cmd_claim(args) -> int:
-    """从 backlog 中认领下一个可用的 Plan Ready 任务。"""
-    try:
-        task_id, lease = _claim_next_task(holder=args.holder)
-    except Exception as e:
-        print(f"Claim failed: {e}", file=sys.stderr)
-        return 1
-
-    if args.execute:
-        sm = StateMachine()
-        g3 = run_gate("g3_entropy_check", task_id)
-        if not g3["passed"]:
-            print(f"G3 FAILED: {g3['message']}", file=sys.stderr)
-            LeaseManager().force_release(task_id)
-            return 1
-        print(f"G3 PASSED: {g3['message']}")
-        try:
-            _transition_with_snapshot(
-                sm, task_id, State.EXECUTING,
-                gate_results={"g3_entropy_check": g3},
-                reason="Auto-claimed and started execution",
-            )
-            print(f"Claimed and started: {task_id} -> Executing")
-        except StateMachineError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            LeaseManager().force_release(task_id)
-            return 1
-    else:
-        print(f"Claimed task: {task_id}")
-
-    print(f"Lease: {lease['holder']} (expires {lease['expires_at']})")
-    if not args.execute:
-        print(f"Next: python .harness/agent-guard/cli.py execute {task_id}")
-    return 0
-
-
-def cmd_execute(args) -> int:
+def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
+    """Shared execution startup logic for execute and claim --execute."""
     sm = StateMachine()
-    task_id = args.task_id
-    auto_claimed = False
 
-    if task_id is None:
-        try:
-            task_id, lease = _claim_next_task()
-            auto_claimed = True
-            print(f"Auto-claimed task: {task_id}")
-        except Exception as e:
-            print(f"Execute failed: {e}", file=sys.stderr)
-            return 1
+    # Verify task exists before running gates
+    try:
+        task_info = sm.get_task(task_id)
+    except StateMachineError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     g3 = run_gate("g3_entropy_check", task_id)
     if not g3["passed"]:
@@ -694,16 +657,36 @@ def cmd_execute(args) -> int:
         return 1
     print(f"G3 PASSED: {g3['message']}")
 
-    # Check if task is already in Executing state (e.g. from prior claim --execute)
-    task_info = sm.get_task(task_id)
     already_executing = task_info.current_state == State.EXECUTING
 
     lm = LeaseManager()
-    # Reuse existing lease if task is already Executing (e.g. from claim --execute),
-    # otherwise acquire with the provided holder.
     existing_lease = lm.get_lease(task_id)
     if existing_lease:
-        lease = existing_lease
+        if lm.is_expired(task_id):
+            # Expired lease: acquire a new one
+            try:
+                lease = lm.acquire(task_id, holder=args.holder)
+            except Exception as e:
+                print(f"Lease acquisition failed: {e}", file=sys.stderr)
+                if auto_claimed:
+                    LeaseManager().force_release(task_id)
+                return 1
+        elif not args.holder:
+            # Active lease exists but no holder provided: reject
+            print(
+                f"Lease held by {existing_lease['holder']}; "
+                f"use --holder {existing_lease['holder']} to continue or claim the task",
+                file=sys.stderr,
+            )
+            return 1
+        elif existing_lease["holder"] != args.holder:
+            print(
+                f"Lease held by {existing_lease['holder']}; cannot execute as {args.holder}",
+                file=sys.stderr,
+            )
+            return 1
+        else:
+            lease = existing_lease
     else:
         try:
             lease = lm.acquire(task_id, holder=args.holder)
@@ -715,13 +698,14 @@ def cmd_execute(args) -> int:
 
     print(f"Lease acquired: {lease['holder']} (expires {lease['expires_at']})")
 
+    sandbox_created_here = False
     if not args.no_sandbox:
         from sandbox import SandboxManager, SandboxError
         sb_mgr = SandboxManager(repo_root=".")
         try:
             info = sb_mgr.create(task_id)
+            sandbox_created_here = info.get("created", True)
             print(f"Sandbox created at {info['worktree_path']}")
-            # Write sandbox info to snapshot
             try:
                 from snapshot import SnapshotManager, SandboxInfo
                 snap_mgr = SnapshotManager()
@@ -737,8 +721,8 @@ def cmd_execute(args) -> int:
         except SandboxError as e:
             print(f"Sandbox creation failed: {e}", file=sys.stderr)
             print("Use --no-sandbox to proceed without isolation.", file=sys.stderr)
-            if auto_claimed:
-                LeaseManager().force_release(task_id)
+            # Always release lease on sandbox failure
+            lm.force_release(task_id)
             return 1
 
     if not already_executing:
@@ -746,33 +730,54 @@ def cmd_execute(args) -> int:
             _transition_with_snapshot(sm, task_id, State.EXECUTING, gate_results={"g3_entropy_check": g3}, reason="Start execution")
         except StateMachineError as e:
             if "Invalid transition" in str(e) and "Executing to Executing" in str(e):
-                # Task already in Executing state (e.g. from claim --execute), skip transition
                 pass
             else:
                 print(f"Error: {e}", file=sys.stderr)
-                if auto_claimed:
-                    LeaseManager().force_release(task_id)
+                lm.force_release(task_id)
+                if sandbox_created_here:
+                    try:
+                        sb_mgr.destroy(task_id, extract_patch_first=False)
+                    except Exception:
+                        pass
                 return 1
         print(f"Task {task_id} -> Executing")
 
-    # 自动将 plan 第 1 步标记为 in_progress
     _auto_mark_first_step_in_progress(task_id)
+    return 0
 
-    # Auto-split if plan has multiple semantic sections
-    plan_path = None
-    for c in [
-        f"docs/superpowers/plans/{task_id}-plan.md",
-        f"docs/superpowers/plans/{task_id}.md",
-    ]:
-        if Path(c).exists():
-            plan_path = c
-            break
-    if plan_path:
-        sub_tasks = _split_plan_into_subtasks(task_id, plan_path)
-        if sub_tasks:
-            print(f"\n已拆分为 {len(sub_tasks)} 个子任务：")
-            for tid, ppath in sub_tasks:
-                print(f"  - {tid}: {ppath}")
+
+def cmd_execute(args) -> int:
+    task_id = args.task_id
+    auto_claimed = False
+
+    if task_id is None:
+        try:
+            task_id, lease = _claim_next_task()
+            auto_claimed = True
+            args.holder = lease["holder"]
+            print(f"Auto-claimed task: {task_id}")
+        except Exception as e:
+            print(f"Execute failed: {e}", file=sys.stderr)
+            return 1
+
+    return _start_execution(task_id, args, auto_claimed=auto_claimed)
+
+
+def cmd_claim(args) -> int:
+    """从 backlog 中认领下一个可用的 Plan Ready 任务。"""
+    try:
+        task_id, lease = _claim_next_task(holder=args.holder)
+    except Exception as e:
+        print(f"Claim failed: {e}", file=sys.stderr)
+        return 1
+
+    if args.execute:
+        args.holder = lease["holder"]
+        return _start_execution(task_id, args, auto_claimed=True)
+
+    print(f"Claimed task: {task_id}")
+    print(f"Lease: {lease['holder']} (expires {lease['expires_at']})")
+    print(f"Next: python .harness/agent-guard/cli.py execute {task_id}")
     return 0
 
 
@@ -1208,6 +1213,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan = subparsers.add_parser("plan", help="Approve plan (Inbox -> Plan Ready)")
     p_plan.add_argument("task_id")
     p_plan.add_argument("--approve", action="store_true", help="Actually execute the transition")
+    p_plan.add_argument("--auto-split", action="store_true", help="Automatically split plan into sub-tasks if complexity budget is exceeded")
 
     # execute
     p_exec = subparsers.add_parser("execute", help="Start execution (Plan Ready -> Executing)")
@@ -1218,6 +1224,7 @@ def main(argv: list[str] | None = None) -> int:
     # claim
     p_claim = subparsers.add_parser("claim", help="Claim next available task from backlog")
     p_claim.add_argument("--execute", action="store_true", help="Auto-transition to Executing after claim")
+    p_claim.add_argument("--no-sandbox", action="store_true", help="Skip worktree sandbox creation")
     p_claim.add_argument("--holder", default=None, help="Lease holder ID")
 
     # patch

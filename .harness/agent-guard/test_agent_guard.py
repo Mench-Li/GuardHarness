@@ -198,6 +198,19 @@ class TestSnapshotManager(unittest.TestCase):
         files = list((Path(self.tmpdir.name) / "snapshots").glob("T-001-*.yaml"))
         self.assertLessEqual(len(files), 11)
 
+    def test_step_snapshot_unique_timestamps(self):
+        """Two rapid snapshot writes must produce distinct timestamped files."""
+        snap = self.mgr.create_snapshot("T-001")
+        # create_snapshot already writes once; two additional writes = 3 total
+        self.mgr._write_snapshot(snap)
+        self.mgr._write_snapshot(snap)
+        files = sorted(
+            (Path(self.tmpdir.name) / "snapshots").glob("T-001-*.yaml"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        non_latest = [f for f in files if not f.name.endswith("-latest.yaml")]
+        self.assertGreaterEqual(len(non_latest), 3, f"Expected >=3 distinct timestamped snapshots, got {len(non_latest)}: {[f.name for f in non_latest]}")
+
     def test_snapshot_with_sandbox_roundtrip(self):
         from snapshot import SandboxInfo
         snap = self.mgr.create_snapshot(
@@ -334,15 +347,14 @@ class TestGates(unittest.TestCase):
         mock_mgr = mock_mgr_cls.return_value
         mock_mgr.get_sandbox.return_value = {"task_id": "T-001", "worktree_path": ".worktrees/T-001"}
         mock_mgr._worktree_path.return_value = Path(".worktrees/T-001")
-        mock_run.return_value = MagicMock(returncode=0, stdout="src/a.py\n", stderr="")
+        mock_run.side_effect = lambda *a, **kw: MagicMock(returncode=0, stdout="", stderr="")
 
         result = g4_surgical_check("T-001")
         self.assertTrue(result["passed"])
-        self.assertIn("sandbox_used", result["details"])
-        self.assertTrue(result["details"]["sandbox_used"])
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args
-        self.assertEqual(call_args.kwargs.get("cwd"), str(Path(".worktrees/T-001")))
+        self.assertEqual(result["message"], "No uncommitted changes")
+        self.assertEqual(mock_run.call_count, 3)
+        for call in mock_run.call_args_list:
+            self.assertEqual(call.kwargs.get("cwd"), str(Path(".worktrees/T-001")))
 
     def test_g5_missing_command(self):
         result = g5_verification_proof("T-001")
@@ -354,6 +366,72 @@ class TestGates(unittest.TestCase):
         Path("docs/superpowers/plans/T-001-plan.md").write_text(plan, encoding="utf-8")
         result = g5_verification_proof("T-001")
         self.assertTrue(result["passed"])
+
+    @patch("gates.subprocess.run")
+    def test_g4_git_command_failure_blocks(self, mock_run):
+        """G4 must fail when git commands return non-zero, not silently pass."""
+        mock_run.side_effect = lambda *a, **kw: MagicMock(
+            returncode=1, stdout="", stderr="fatal: not a git repository"
+        )
+        result = g4_surgical_check("T-001")
+        self.assertFalse(result["passed"])
+        self.assertIn("Git diff failed", result["message"])
+
+    def test_g4_allows_common_frontend_extensions(self):
+        """G4 should recognize common frontend/config extensions in file_changes."""
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n"
+            "- src/App.tsx\n- src/index.jsx\n- styles.css\n- index.html\n"
+            "- config.toml\n- .github/workflows/ci.yml\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/T-FRONT-001-plan.md").write_text(plan, encoding="utf-8")
+
+        # Initialize a git repo so git diff commands work
+        import subprocess
+        subprocess.run(["git", "init"], capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], capture_output=True)
+        Path("init.txt").write_text("init", encoding="utf-8")
+        subprocess.run(["git", "add", "init.txt"], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], capture_output=True)
+
+        # Simulate staged changes for all listed files
+        for f in ["src/App.tsx", "src/index.jsx", "styles.css", "index.html", "config.toml", ".github/workflows/ci.yml"]:
+            Path(f).parent.mkdir(parents=True, exist_ok=True)
+            Path(f).write_text("x", encoding="utf-8")
+            subprocess.run(["git", "add", f], capture_output=True)
+
+        result = g4_surgical_check("T-FRONT-001", plan_path="docs/superpowers/plans/T-FRONT-001-plan.md")
+        self.assertTrue(result["passed"], f"G4 should allow frontend/config files: {result}")
+
+    def test_g4_blocks_other_task_plan_modifications(self):
+        """G4 must detect modifications to OTHER tasks' plan files, not blanket-exempt all plans."""
+        import subprocess
+
+        # Initialize a git repo
+        subprocess.run(["git", "init"], capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], capture_output=True)
+        Path("init.txt").write_text("init", encoding="utf-8")
+        subprocess.run(["git", "add", "init.txt"], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], capture_output=True)
+
+        # Current task plan
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n"
+            "- src/a.py\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+        )
+        Path("docs/superpowers/plans/TASK-CURR-001-plan.md").write_text(plan, encoding="utf-8")
+
+        # Another task's plan
+        Path("docs/superpowers/plans/TASK-OTHER-001-plan.md").write_text("# Other plan\n", encoding="utf-8")
+        subprocess.run(["git", "add", "docs/superpowers/plans/TASK-OTHER-001-plan.md"], capture_output=True)
+
+        result = g4_surgical_check("TASK-CURR-001", plan_path="docs/superpowers/plans/TASK-CURR-001-plan.md")
+        self.assertFalse(result["passed"], f"G4 should block modifications to other task plans: {result}")
+        self.assertIn("TASK-OTHER-001-plan.md", result["message"])
 
 
 class TestSandboxCLI(unittest.TestCase):
@@ -400,6 +478,90 @@ class TestSandboxCLI(unittest.TestCase):
         args = argparse.Namespace(task_id="T-001", patch=True)
         rc = cmd_sandbox_destroy(args)
         self.assertEqual(rc, 0)
+
+    @patch("cli._transition_with_snapshot")
+    @patch("sandbox.subprocess.run")
+    def test_sandbox_destroyed_on_transition_failure(self, mock_run, mock_transition):
+        """If state transition fails after sandbox creation, worktree must be cleaned up."""
+        import argparse
+        from state_machine import StateMachine, State, StateMachineError
+        from cli import _start_execution
+
+        sm = StateMachine()
+        sm.init_task("T-SBOX-FAIL")
+        sm.transition("T-SBOX-FAIL", State.PLAN_READY, skip_gates=True)
+
+        # Make _transition_with_snapshot raise after sandbox is created
+        mock_transition.side_effect = StateMachineError("Invalid transition from Plan Ready to Done")
+
+        def side_effect(cmd, **kwargs):
+            if cmd[:3] == ["git", "worktree", "add"]:
+                # Simulate actual worktree creation so destroy() can find it
+                worktree = Path(".worktrees/T-SBOX-FAIL")
+                worktree.mkdir(parents=True, exist_ok=True)
+                (worktree / ".git").write_text("gitdir: /fake/path", encoding="utf-8")
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if cmd[:3] == ["git", "worktree", "remove"]:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+
+        args = argparse.Namespace(
+            task_id="T-SBOX-FAIL",
+            no_sandbox=False,
+            holder=None,
+        )
+
+        rc = _start_execution("T-SBOX-FAIL", args)
+        self.assertEqual(rc, 1)
+
+        # Verify destroy was called (via subprocess.run with "worktree", "remove")
+        destroy_calls = [call for call in mock_run.call_args_list
+                         if len(call.args[0]) >= 3 and call.args[0][:3] == ["git", "worktree", "remove"]]
+        self.assertTrue(destroy_calls, "sandbox worktree should be destroyed when transition fails")
+
+    @patch("cli._transition_with_snapshot")
+    @patch("sandbox.subprocess.run")
+    def test_reused_worktree_not_destroyed_on_transition_failure(self, mock_run, mock_transition):
+        """If worktree was reused (not created here), transition failure must NOT destroy it."""
+        import argparse
+        from state_machine import StateMachine, State, StateMachineError
+        from cli import _start_execution
+
+        sm = StateMachine()
+        sm.init_task("T-SBOX-REUSE")
+        sm.transition("T-SBOX-REUSE", State.PLAN_READY, skip_gates=True)
+
+        # Pre-create worktree with .git so create() reports reuse (created=False)
+        worktree = Path(".worktrees/T-SBOX-REUSE")
+        worktree.mkdir(parents=True, exist_ok=True)
+        (worktree / ".git").write_text("gitdir: /fake/path", encoding="utf-8")
+
+        mock_transition.side_effect = StateMachineError("Invalid transition")
+
+        def side_effect(cmd, **kwargs):
+            if cmd[:3] == ["git", "worktree", "add"]:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "rev-parse" in cmd and "--git-dir" in cmd:
+                return MagicMock(returncode=0, stdout="/fake/path\n", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+
+        args = argparse.Namespace(
+            task_id="T-SBOX-REUSE",
+            no_sandbox=False,
+            holder=None,
+        )
+
+        rc = _start_execution("T-SBOX-REUSE", args)
+        self.assertEqual(rc, 1)
+
+        # Verify destroy was NOT called
+        destroy_calls = [call for call in mock_run.call_args_list
+                         if len(call.args[0]) >= 3 and call.args[0][:3] == ["git", "worktree", "remove"]]
+        self.assertFalse(destroy_calls, "reused worktree should NOT be destroyed when transition fails")
 
 
 if __name__ == "__main__":
