@@ -1,0 +1,30 @@
+reviewer_pool:
+  version: "1.0"
+
+  agents:
+    - role: design-reviewer
+      model: claude-sonnet-4-6
+      prompt: "prompts/design-reviewer.md"
+      max_concurrent: 3
+
+    - role: code-reviewer
+      model: claude-sonnet-4-6
+      prompt: "prompts/code-reviewer.md"
+      max_concurrent: 5
+
+    - role: fixer
+      model: claude-sonnet-4-6
+      prompt: "prompts/fixer.md"
+      max_concurrent: 2
+
+  dispatch:
+    strategy: round_robin
+    priority:
+      - critical_bugs
+      - security_issues
+      - feature_reviews
+
+  proof_of_work:
+    - test_coverage_threshold: 80
+    - complexity_max: 10
+    - lint_pass: true

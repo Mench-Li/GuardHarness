@@ -1,0 +1,39 @@
+model_routing:
+  version: "1.0"
+
+  roles:
+    planner:
+      primary: kimi-k2.6
+      fallback: kimi-k2.6
+      reason: "规划需要最强推理能力"
+
+    generator:
+      primary: kimi-k2.6
+      fallback: kimi-k2.6
+      reason: "实现阶段需要速度，复杂部分用主模型"
+
+    evaluator:
+      primary: kimi-k2.6
+      fallback: kimi-k2.6
+      reason: "评估质量要求最高判断力"
+
+    reviewer:
+      primary: kimi-k2.6
+      fallback: kimi-k2.6
+      reason: "代码审查需要平衡质量与成本"
+
+  optimization:
+    cheap_routing:
+      enabled: true
+      condition: "message_length < 160 and no_code_keywords"
+      model: claude-haiku-4-5-20251001
+
+    context_window:
+      planner: 200k
+      generator: 200k
+      evaluator: 200k
+
+  hermes_mapping:
+    planner: "hermes-pro"
+    generator: "hermes-standard"
+    evaluator: "hermes-pro"

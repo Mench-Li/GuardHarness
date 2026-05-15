@@ -1,0 +1,35 @@
+design_harness:
+  version: "1.0"
+
+  iterations:
+    max: 3
+    min: 1
+
+  roles:
+    planner:
+      prompt: ".harness/superpowers/skills/planner-prompt.md"
+      output: "spec_v1.md"
+
+    evaluator:
+      prompt: ".harness/superpowers/skills/evaluator-prompt.md"
+      acceptance_criteria:
+        - "架构清晰，模块边界明确"
+        - "所有外部依赖已识别"
+        - "测试策略已定义"
+        - "风险点有应对方案"
+
+  output_template: |
+    ---
+    harness_version: 1.0
+    iteration_count: {{ iteration_count }}
+    evaluator_passed: {{ passed }}
+    ---
+
+    {{ spec_content }}
+
+    ## Verification Record
+    {% for iter in iterations %}
+    ### Iteration {{ iter.number }}
+    - Reviewer: {{ iter.feedback }}
+    - Action: {{ iter.action }}
+    {% endfor %}

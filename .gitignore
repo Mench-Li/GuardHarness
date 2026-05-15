@@ -1,0 +1,8 @@
+# GuardHarness
+.worktrees/
+.claude/memory/user/
+.harness/agent-guard/leases/
+.harness/agent-guard/snapshots/
+.harness/agent-guard/state/
+__pycache__/
+*.pyc

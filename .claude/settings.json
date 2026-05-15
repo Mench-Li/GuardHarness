@@ -1,0 +1,93 @@
+{
+  "skills": {
+    "local": {
+      "paths": [
+        ".harness/superpowers/skills/using-superpowers.md",
+        ".harness/superpowers/skills/brainstorming.md",
+        ".harness/superpowers/skills/writing-plans.md",
+        ".harness/superpowers/skills/executing-plans.md",
+        ".harness/superpowers/skills/subagent-driven-development/SKILL.md",
+        ".harness/superpowers/skills/finishing-a-development-branch.md",
+        ".harness/superpowers/skills/test-driven-development.md",
+        ".harness/superpowers/skills/systematic-debugging.md",
+        ".harness/superpowers/skills/dispatching-parallel-agents.md",
+        ".harness/superpowers/skills/requesting-code-review/SKILL.md",
+        ".harness/superpowers/skills/receiving-code-review.md",
+        ".harness/superpowers/skills/using-git-worktrees.md",
+        ".harness/superpowers/skills/verification-before-completion.md",
+        ".harness/superpowers/skills/writing-skills.md",
+        ".harness/superpowers/skills/planner-prompt.md",
+        ".harness/superpowers/skills/evaluator-prompt.md",
+        ".harness/superpowers/skills/memory-reflection.md"
+      ]
+    }
+  },
+  "hooks": {
+    "session_start": [
+      ".claude/scripts/check-reflection-due.ps1"
+    ],
+    "user_prompt_submit": [
+      ".claude/scripts/parse-slash-command.py"
+    ]
+  },
+  "permissions": {
+    "allow": [
+      {
+        "command": "git worktree add",
+        "when": "in .worktrees/"
+      },
+      {
+        "command": "git worktree remove",
+        "when": "always"
+      },
+      {
+        "command": "git worktree list",
+        "when": "always"
+      },
+      {
+        "command": "pytest",
+        "when": "always"
+      },
+      {
+        "command": "ruff check",
+        "when": "always"
+      },
+      {
+        "command": "ruff format",
+        "when": "always"
+      },
+      {
+        "command": "mypy",
+        "when": "always"
+      },
+      {
+        "command": "npm test",
+        "when": "always"
+      },
+      {
+        "command": "npm run lint",
+        "when": "always"
+      },
+      {
+        "command": ".claude/scripts/auto-observe.ps1",
+        "when": "always"
+      },
+      {
+        "command": ".claude/scripts/detect-entropy.ps1",
+        "when": "always"
+      },
+      {
+        "command": ".claude/scripts/cluster-observations.ps1",
+        "when": "always"
+      },
+      {
+        "command": ".claude/scripts/check-invariants.ps1",
+        "when": "always"
+      }
+    ]
+  },
+  "env": {
+    "HARNESS_CONFIG_ROOT": ".harness",
+    "HARNESS_MODE": "manual"
+  }
+}
