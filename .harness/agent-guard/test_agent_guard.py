@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -684,6 +685,69 @@ class TestSandboxCLI(unittest.TestCase):
                 self.assertEqual(cwd, expected)
                 mock_run.assert_called_once()
                 self.assertEqual(mock_run.call_args[1].get("cwd"), expected)
+
+
+class TestArchiveLegacyTasks(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        self.state_dir = Path(".harness/agent-guard/state")
+        self.state_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_archives_task_018_legacy_pseudo_tasks(self):
+        """archive-legacy-tasks.py should mark TASK-018-* children as archived."""
+        # Create registry with legacy pseudo tasks
+        registry = {
+            "TASK-018": {"state": "Done"},
+            "TASK-018-Step-Commit": {"state": "Plan Ready", "parent": "TASK-018"},
+            "TASK-018-file-changes": {"state": "Inbox", "parent": "TASK-018"},
+            "TASK-OTHER": {"state": "Plan Ready"},
+        }
+        registry_path = self.state_dir / "registry.json"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+        # Create corresponding task state files
+        for task_id in ["TASK-018-Step-Commit", "TASK-018-file-changes"]:
+            task_file = self.state_dir / f"{task_id}-state.json"
+            task_data = {
+                "task_id": task_id,
+                "current_state": "Plan Ready",
+                "history": [],
+                "created_at": "2026-01-01T00:00:00+08:00",
+                "updated_at": "2026-01-01T00:00:00+08:00",
+                "metadata": {"parent": "TASK-018"},
+            }
+            task_file.write_text(json.dumps(task_data), encoding="utf-8")
+
+        # Run the script
+        import subprocess
+        script_path = Path(__file__).parent / "scripts" / "archive-legacy-tasks.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+        self.assertIn("Archived TASK-018-Step-Commit", result.stdout)
+        self.assertIn("Archived TASK-018-file-changes", result.stdout)
+        self.assertIn("Done. Archived 2 legacy pseudo tasks.", result.stdout)
+
+        # Verify registry updated
+        updated_registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        self.assertTrue(updated_registry["TASK-018-Step-Commit"].get("archived"))
+        self.assertEqual(updated_registry["TASK-018-Step-Commit"].get("archived_reason"), "legacy_pseudo_task")
+        self.assertTrue(updated_registry["TASK-018-file-changes"].get("archived"))
+        self.assertFalse(updated_registry["TASK-OTHER"].get("archived", False))
+
+        # Verify task state files updated
+        commit_task = json.loads((self.state_dir / "TASK-018-Step-Commit-state.json").read_text(encoding="utf-8"))
+        self.assertTrue(commit_task["metadata"].get("archived"))
+        self.assertEqual(commit_task["current_state"], "Done")
 
 
 if __name__ == "__main__":
