@@ -687,6 +687,38 @@ class TestSandboxCLI(unittest.TestCase):
                 self.assertEqual(mock_run.call_args[1].get("cwd"), expected)
 
 
+class TestClaimStats(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        self.state_dir = Path(".harness/agent-guard/state")
+        self.state_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_claim_stats_in_error_message(self):
+        """When no task is claimable, error should include filter stats."""
+        from cli import _claim_next_task
+        from lease import LeaseError
+
+        sm = StateMachine()
+        sm.init_task("T-CLAIM-STAT")
+        sm.transition("T-CLAIM-STAT", State.PLAN_READY, skip_gates=True)
+        # Acquire lease so task is excluded
+        from lease import LeaseManager
+        LeaseManager().acquire("T-CLAIM-STAT", holder="test")
+
+        with self.assertRaises(LeaseError) as ctx:
+            _claim_next_task()
+        msg = str(ctx.exception)
+        self.assertIn("total_plan_ready=", msg)
+        self.assertIn("leaf=", msg)
+        self.assertIn("active_leases=", msg)
+
+
 class TestArchiveLegacyTasks(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()

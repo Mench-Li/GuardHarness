@@ -82,14 +82,14 @@ def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
     sm = StateMachine()
     lm = LeaseManager()
 
-    tasks = sm.list_tasks(state_filter=State.PLAN_READY)
-    # Auto-claim should pick executable leaf work, not orchestration parents.
-    tasks = [t for t in tasks if not sm.get_children(t.task_id)]
-    tasks = [t for t in tasks if _has_valid_source_plan(t)]
-    tasks = [t for t in tasks if not _is_pseudo_task(t.task_id)]
-    tasks = sorted(tasks, key=lambda t: t.updated_at)
+    all_tasks = sm.list_tasks(state_filter=State.PLAN_READY)
+    leaf_tasks = [t for t in all_tasks if not sm.get_children(t.task_id)]
+    valid_plan_tasks = [t for t in leaf_tasks if _has_valid_source_plan(t)]
+    non_pseudo_tasks = [t for t in valid_plan_tasks if not _is_pseudo_task(t.task_id)]
+    sorted_tasks = sorted(non_pseudo_tasks, key=lambda t: t.updated_at)
 
-    for task in tasks:
+    leased = []
+    for task in sorted_tasks:
         lease = lm.get_lease(task.task_id)
         if lease is None or lm.is_expired(task.task_id):
             try:
@@ -97,8 +97,15 @@ def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
                 return task.task_id, new_lease
             except _LeaseError:
                 continue
+        else:
+            leased.append(task)
 
-    raise _LeaseError("No available tasks in backlog (all Plan Ready tasks have active leases)")
+    raise _LeaseError(
+        f"No available tasks in backlog. "
+        f"Filter stats: total_plan_ready={len(all_tasks)}, leaf={len(leaf_tasks)}, "
+        f"valid_plan={len(valid_plan_tasks)}, non_pseudo={len(non_pseudo_tasks)}, "
+        f"active_leases={len(leased)}"
+    )
 
 
 def _parse_plan_progress(plan_path: str) -> PlanProgress:
