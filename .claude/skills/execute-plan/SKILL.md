@@ -34,6 +34,6 @@ description: 执行实现计划（加载 executing-plans 或 subagent-driven-dev
    - **不要跳过此步骤。** Snapshot 不会自动进入 Patch Ready。
 10. **状态转换：review（必须）**
     - patch 成功后，运行 `python .harness/agent-guard/cli.py review TASK-xxx`
-    - 触发 G5 Verification Proof（运行验证命令并确认通过），转换 Patch Ready → Entropy Review
+    - 触发 G5 Verification Proof（运行验证命令并确认通过），转换 Entropy Review → Done
     - 如果 review 失败，修复问题后重新运行 `review`
     - **不要跳过此步骤。**
