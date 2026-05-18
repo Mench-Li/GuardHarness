@@ -587,7 +587,7 @@ def _sync_child_completion_to_parent(task_id: str) -> None:
         try:
             parent_task = sm.get_task(parent_id)
             if parent_task.current_state == State.EXECUTING:
-                # Fast-track parent through remaining states (children already did patch/review)
+                # Auto fast-track through remaining states (children already did patch/review/finish)
                 sm.transition(parent_id, State.PATCH_READY, skip_gates=True, reason="All children done")
                 sm.transition(parent_id, State.ENTROPY_REVIEW, skip_gates=True, reason="All children done")
                 sm.transition(parent_id, State.DONE, skip_gates=True, reason="All children done")
