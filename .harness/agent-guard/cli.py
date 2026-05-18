@@ -38,7 +38,7 @@ from snapshot import (
     Snapshot,
     SnapshotManager,
 )
-from state_machine import State, StateMachine, StateMachineError, TaskState
+from state_machine import State, StateMachine, StateMachineError, StateTransition, TaskState
 
 
 _PSEUDO_TASK_PATTERNS = [
@@ -590,6 +590,43 @@ def _sync_child_completion_to_parent(task_id: str) -> None:
             print(f"[Auto-transition warning] Could not transition parent {parent_id}: {e}", file=sys.stderr)
 
 
+def _archive_orphan_children(parent_id: str) -> None:
+    """When a parent reaches Done, auto-archive any incomplete children to Done."""
+    sm = StateMachine()
+    children = sm.get_children(parent_id)
+    if not children:
+        return
+
+    archived_count = 0
+    for child_id in children:
+        try:
+            child_task = sm.get_task(child_id)
+            if child_task.current_state == State.DONE:
+                continue
+
+            from_state = child_task.current_state
+            now = datetime.now(timezone(timedelta(hours=8))).isoformat()
+            child_task.current_state = State.DONE
+            child_task.history.append(
+                StateTransition(
+                    from_state=from_state,
+                    to_state=State.DONE,
+                    timestamp=now,
+                    reason=f"Parent {parent_id} done, auto-archived",
+                )
+            )
+            child_task.updated_at = now
+            child_task.metadata["archived"] = True
+            sm._save_task(child_task)
+            sm._update_registry(child_id, State.DONE)
+            archived_count += 1
+        except StateMachineError as e:
+            print(f"[Archive warning] Could not archive child {child_id}: {e}", file=sys.stderr)
+
+    if archived_count:
+        print(f"[Archive] {archived_count} incomplete child(ren) of {parent_id} auto-archived to Done")
+
+
 def cmd_init(args) -> int:
     sm = StateMachine()
     meta = {}
@@ -931,6 +968,9 @@ def cmd_finish(args) -> int:
 
         # Sync child completion to parent snapshot
         _sync_child_completion_to_parent(args.task_id)
+
+        # Archive any incomplete children
+        _archive_orphan_children(args.task_id)
     except StateMachineError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

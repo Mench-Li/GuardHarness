@@ -269,14 +269,17 @@ class StateMachine:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(registry, f, indent=2, ensure_ascii=False)
 
-    def list_tasks(self, state_filter: State | None = None) -> list[TaskState]:
+    def list_tasks(self, state_filter: State | None = None, include_archived: bool = False) -> list[TaskState]:
         """List all tasks, optionally filtered by state."""
         tasks = []
         for path in self.state_dir.glob("*-state.json"):
             if path.name == "registry.json":
                 continue
-            task = self.get_task(path.stem.replace("-state", ""))
+            task_id = path.name[: -len("-state.json")]
+            task = self.get_task(task_id)
             if state_filter is None or task.current_state == state_filter:
+                if not include_archived and task.metadata.get("archived"):
+                    continue
                 tasks.append(task)
         return sorted(tasks, key=lambda t: t.updated_at, reverse=True)
 

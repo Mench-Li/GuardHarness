@@ -680,6 +680,56 @@ class TestAgentGuardE2E(unittest.TestCase):
         children = sm.get_children("TASK-NO-FALLBACK")
         self.assertEqual(len(children), 0, f"Expected 0 children without Task sections, got {children}")
 
+    def test_parent_done_archives_incomplete_children(self):
+        self._run("init", "TASK-PARENT-ARCHIVE")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n"
+            "## success_criteria\nY.\n\n## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Done\n\n"
+            "## gate_checkpoints\nG1: Plan Valid\n"
+        )
+        Path("docs/superpowers/plans/TASK-PARENT-ARCHIVE-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-PARENT-ARCHIVE", "--approve")
+
+        # Create two children
+        sm = StateMachine()
+        sm.init_task(
+            "TASK-CHILD-DONE",
+            metadata={
+                "parent": "TASK-PARENT-ARCHIVE",
+                "source_plan": "docs/superpowers/plans/TASK-PARENT-ARCHIVE-plan.md",
+            },
+        )
+        sm.init_task(
+            "TASK-CHILD-INBOX",
+            metadata={
+                "parent": "TASK-PARENT-ARCHIVE",
+                "source_plan": "docs/superpowers/plans/TASK-PARENT-ARCHIVE-plan.md",
+            },
+        )
+        sm.transition("TASK-CHILD-DONE", State.PLAN_READY, skip_gates=True)
+        sm.transition("TASK-CHILD-DONE", State.EXECUTING, skip_gates=True)
+        sm.transition("TASK-CHILD-DONE", State.PATCH_READY, skip_gates=True)
+        sm.transition("TASK-CHILD-DONE", State.ENTROPY_REVIEW, skip_gates=True)
+        sm.transition("TASK-CHILD-DONE", State.DONE, skip_gates=True)
+
+        # Finish parent
+        self._run("execute", "TASK-PARENT-ARCHIVE", "--no-sandbox")
+        self._run("patch", "TASK-PARENT-ARCHIVE")
+        self._run("review", "TASK-PARENT-ARCHIVE")
+        r = self._run("finish", "TASK-PARENT-ARCHIVE")
+        self.assertEqual(r.returncode, 0, f"finish failed: {r.stderr}")
+
+        # Inbox child should now be Done and archived
+        r = self._run("status", "TASK-CHILD-INBOX")
+        self.assertIn("Done", r.stdout, f"Incomplete child should be auto-archived to Done: {r.stdout}")
+        self.assertIn("archived", r.stdout, f"Archived flag should be set: {r.stdout}")
+
+        # Archived child should not appear in normal list
+        r = self._run("list")
+        self.assertNotIn("TASK-CHILD-INBOX", r.stdout, f"Archived child should not appear in list: {r.stdout}")
+
 
 if __name__ == "__main__":
     unittest.main()
