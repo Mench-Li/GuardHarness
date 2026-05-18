@@ -699,6 +699,58 @@ class TestArchiveLegacyTasks(unittest.TestCase):
         os.chdir(self.orig_cwd)
         self.tmpdir.cleanup()
 
+    def test_archive_dry_run_does_not_modify(self):
+        """Default dry-run must not modify registry or task files."""
+        import subprocess
+        script_path = Path(__file__).parent / "scripts" / "archive-legacy-tasks.py"
+        registry = {
+            "TASK-018": {"state": "Done"},
+            "TASK-018-Sub": {"state": "Plan Ready", "parent": "TASK-018"},
+        }
+        registry_path = self.state_dir / "registry.json"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        task_file = self.state_dir / "TASK-018-Sub-state.json"
+        task_file.write_text(json.dumps({
+            "task_id": "TASK-018-Sub", "current_state": "Plan Ready",
+            "history": [], "created_at": "2026-01-01T00:00:00+08:00",
+            "updated_at": "2026-01-01T00:00:00+08:00", "metadata": {"parent": "TASK-018"},
+        }), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        # Registry should remain unchanged
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))
+        self.assertNotIn("archived", updated["TASK-018-Sub"])
+
+    def test_archive_apply_creates_backup(self):
+        """--apply must create a registry backup before modifying."""
+        import subprocess
+        script_path = Path(__file__).parent / "scripts" / "archive-legacy-tasks.py"
+        registry = {
+            "TASK-018": {"state": "Done"},
+            "TASK-018-Sub": {"state": "Plan Ready", "parent": "TASK-018"},
+        }
+        registry_path = self.state_dir / "registry.json"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        task_file = self.state_dir / "TASK-018-Sub-state.json"
+        task_file.write_text(json.dumps({
+            "task_id": "TASK-018-Sub", "current_state": "Plan Ready",
+            "history": [], "created_at": "2026-01-01T00:00:00+08:00",
+            "updated_at": "2026-01-01T00:00:00+08:00", "metadata": {"parent": "TASK-018"},
+        }), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--apply"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        backups = list(self.state_dir.glob("registry.json.backup.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertIn("Archived TASK-018-Sub", result.stdout)
+
     def test_archives_task_018_legacy_pseudo_tasks(self):
         """archive-legacy-tasks.py should mark TASK-018-* children as archived."""
         # Create registry with legacy pseudo tasks
@@ -728,7 +780,7 @@ class TestArchiveLegacyTasks(unittest.TestCase):
         import subprocess
         script_path = Path(__file__).parent / "scripts" / "archive-legacy-tasks.py"
         result = subprocess.run(
-            [sys.executable, str(script_path)],
+            [sys.executable, str(script_path), "--apply"],
             capture_output=True,
             text=True,
         )
