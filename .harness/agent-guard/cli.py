@@ -826,8 +826,9 @@ def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
                 created_at=sandbox_info["created_at"],
             )
             snap_mgr._write_snapshot(snap)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] Snapshot sandbox write failed: {e}", file=sys.stderr)
+            print(f"[WARN] Worktree path '{sandbox_info.get('worktree_path')}' not persisted. Resume may fail.", file=sys.stderr)
 
     _auto_mark_first_step_in_progress(task_id)
     return 0

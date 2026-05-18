@@ -730,6 +730,34 @@ class TestAgentGuardE2E(unittest.TestCase):
         r = self._run("list")
         self.assertNotIn("TASK-CHILD-INBOX", r.stdout, f"Archived child should not appear in list: {r.stdout}")
 
+    def test_sandbox_snapshot_write_failure_warns(self):
+        self._run("init", "TASK-SNAP-WARN")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n"
+            "## success_criteria\nY.\n\n## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Done\n\n"
+            "## gate_checkpoints\nG1: Plan Valid\n"
+        )
+        Path("docs/superpowers/plans/TASK-SNAP-WARN-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-SNAP-WARN", "--approve")
+
+        # Pre-transition to Executing so _transition_with_snapshot is skipped
+        sm = StateMachine()
+        sm.transition("TASK-SNAP-WARN", State.EXECUTING, skip_gates=True)
+
+        # Replace snapshot latest file with a directory to trigger write failure
+        # in the sandbox info block only (after transition)
+        snap_file = Path(".harness/agent-guard/snapshots/TASK-SNAP-WARN-latest.yaml")
+        self.assertTrue(snap_file.exists(), "Snapshot file should exist after plan")
+        snap_file.unlink()
+        snap_file.mkdir()
+
+        r = self._run("execute", "TASK-SNAP-WARN")
+        self.assertEqual(r.returncode, 0, f"execute should succeed even if snapshot write fails: {r.stderr}")
+        combined = r.stdout + r.stderr
+        self.assertIn("WARN", combined, f"Output should contain warning about snapshot write failure: {combined}")
+
 
 if __name__ == "__main__":
     unittest.main()
