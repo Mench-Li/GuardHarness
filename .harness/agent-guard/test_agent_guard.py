@@ -1085,5 +1085,56 @@ class TestListIncludeArchived(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class TestParsePlanProgress(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_extracts_task_headers_not_checkboxes(self):
+        """When plan has ### Task N: headers, only those become steps."""
+        from cli import _parse_plan_progress
+
+        plan = """
+### Task 1: Setup
+- [ ] Step 1.1
+- [ ] Step 1.2
+
+### Task 2: Implement
+- [ ] Step 2.1
+- [ ] Step 2.2
+"""
+        path = Path("plan.md")
+        path.write_text(plan, encoding="utf-8")
+
+        progress = _parse_plan_progress(str(path))
+        self.assertEqual(progress.total_steps, 2)
+        self.assertEqual(len(progress.pending), 2)
+        self.assertEqual(progress.pending[0].description, "Setup")
+        self.assertEqual(progress.pending[1].description, "Implement")
+
+    def test_fallback_to_list_items_when_no_task_headers(self):
+        """When plan lacks Task headers, fall back to checkbox/list items."""
+        from cli import _parse_plan_progress
+
+        plan = """
+- [ ] Step A
+- [ ] Step B
+1. Step C
+"""
+        path = Path("plan2.md")
+        path.write_text(plan, encoding="utf-8")
+
+        progress = _parse_plan_progress(str(path))
+        self.assertEqual(progress.total_steps, 3)
+        self.assertEqual(progress.pending[0].description, "Step A")
+        self.assertEqual(progress.pending[1].description, "Step B")
+        self.assertEqual(progress.pending[2].description, "Step C")
+
+
 if __name__ == "__main__":
     unittest.main()

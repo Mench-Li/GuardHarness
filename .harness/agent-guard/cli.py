@@ -110,19 +110,35 @@ def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
 
 
 def _parse_plan_progress(plan_path: str) -> PlanProgress:
-    """解析 plan 文件，提取 markdown 步骤列表构建 PlanProgress。"""
+    """解析 plan 文件，提取 markdown 步骤列表构建 PlanProgress。
+
+    优先识别 ### Task N: 级别的 header 作为 PlanStep，避免将所有 checkbox
+    子步骤都变成独立 step 导致管理粒度太细。
+    """
     import re
 
     content = Path(plan_path).read_text(encoding="utf-8")
     lines = content.splitlines()
 
-    step_pattern = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)")
+    # 优先检测 Task 级 header: ### Task N: Title
+    task_header_pattern = re.compile(r"^#{3,4}\s+Task\s+\d+[:：]?\s*(.*)$")
     steps: list[PlanStep] = []
     for line in lines:
-        if step_pattern.match(line):
-            desc = re.sub(r"^\s*(?:[-*]|\d+\.)\s+", "", line).strip()
-            if desc:
-                steps.append(PlanStep(step=len(steps) + 1, description=desc))
+        m = task_header_pattern.match(line)
+        if m:
+            desc = m.group(1).strip()
+            steps.append(PlanStep(step=len(steps) + 1, description=desc or line.strip()))
+
+    # 如果没有找到 Task header，回退到传统列表项解析
+    if not steps:
+        step_pattern = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)")
+        for line in lines:
+            if step_pattern.match(line):
+                desc = re.sub(r"^\s*(?:[-*]|\d+\.)\s+", "", line).strip()
+                # 去除 checkbox 标记 [ ] / [x]
+                desc = re.sub(r"^\[\s*[xX]?\s*\]\s+", "", desc).strip()
+                if desc:
+                    steps.append(PlanStep(step=len(steps) + 1, description=desc))
 
     return PlanProgress(total_steps=len(steps), pending=steps)
 
