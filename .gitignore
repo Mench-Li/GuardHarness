@@ -4,5 +4,7 @@
 .harness/agent-guard/leases/
 .harness/agent-guard/snapshots/
 .harness/agent-guard/state/
+.harness/agent-guard/patches/
+.claude/scripts/hook-debug.log
 __pycache__/
 *.pyc

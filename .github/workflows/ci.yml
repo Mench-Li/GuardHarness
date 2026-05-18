@@ -1,0 +1,14 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml pytest
+      - run: pytest .harness/agent-guard/ -v
+      - run: python .claude/scripts/check-doc-sync.py
+      - run: test -f install.sh && test -f install.ps1 && test -f install.py
