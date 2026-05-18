@@ -384,54 +384,11 @@ def _split_plan_into_subtasks(task_id: str, plan_path: str) -> list[tuple[str, s
         if results:
             _update_parent_snapshot_with_subtasks(task_id, results, plan_path)
             return results
-        # 如果没有 Task-level sections，继续执行中点拆分回退
 
-    # 回退：中点拆分（旧行为）
-    step_pattern = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)")
-    step_indices = [i for i, line in enumerate(lines) if step_pattern.match(line)]
-
-    if len(step_indices) < 2:
-        return []
-
-    mid = len(step_indices) // 2
-    split_idx = step_indices[mid]
-
-    header_end = step_indices[0]
-    footer_start = step_indices[-1] + 1
-
-    header = lines[:header_end]
-    footer = lines[footer_start:] if footer_start <= len(lines) else []
-    part1_steps = lines[header_end:split_idx]
-    part2_steps = lines[split_idx:footer_start]
-
-    plan_dir = Path(plan_path).parent
-    stem = Path(plan_path).stem
-
-    sub1_path = plan_dir / f"{stem}-sub1.md"
-    sub2_path = plan_dir / f"{stem}-sub2.md"
-
-    counter = 1
-    while sub1_path.exists() or sub2_path.exists():
-        sub1_path = plan_dir / f"{stem}-sub1-{counter}.md"
-        sub2_path = plan_dir / f"{stem}-sub2-{counter}.md"
-        counter += 1
-
-    sub1_path.write_text("".join(header + part1_steps + footer), encoding="utf-8")
-    sub2_path.write_text("".join(header + part2_steps + footer), encoding="utf-8")
-
-    sm = StateMachine()
-    sub1_id = f"{task_id}-sub1"
-    sub2_id = f"{task_id}-sub2"
-
-    for sub_id in (sub1_id, sub2_id):
-        try:
-            sm.init_task(sub_id, metadata={"parent": task_id})
-        except StateMachineError:
-            pass
-
-    sub_task_results = [(sub1_id, str(sub1_path)), (sub2_id, str(sub2_path))]
-    _update_parent_snapshot_with_subtasks(task_id, sub_task_results, plan_path)
-    return sub_task_results
+    # No Task-level sections found; do not fallback to midpoint split
+    print("[WARN] Plan has no Task-level sections; skipping auto-split.")
+    print("       Consider breaking the plan into explicit Task sections or increasing complexity budget.")
+    return []
 
 
 def _transition_with_snapshot(

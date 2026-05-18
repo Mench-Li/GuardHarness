@@ -240,9 +240,9 @@ class TestAgentGuardE2E(unittest.TestCase):
             "Inbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n"
             "## gate_checkpoints\n"
             "G1: Plan Valid\n\n"
-            "## Alpha-Feature\n"
+            "### Task 1: Alpha-Feature\n"
             "Step 1.\n\n"
-            "## Beta-Feature\n"
+            "### Task 2: Beta-Feature\n"
             "Step 2.\n"
         )
         Path("docs/superpowers/plans/TASK-PARENT-001-plan.md").write_text(plan, encoding="utf-8")
@@ -657,6 +657,28 @@ class TestAgentGuardE2E(unittest.TestCase):
         r = self._run("claim")
         self.assertEqual(r.returncode, 1, f"claim should fail when only pseudo tasks are available: {r.stdout}")
         self.assertIn("No available tasks", r.stdout + r.stderr)
+
+
+    def test_no_fallback_split_without_task_sections(self):
+        self._run("init", "TASK-NO-FALLBACK")
+        # Plan without any ### Task N: sections
+        plan = (
+            "# Plan\n\n### task_description\nDo something.\n\n"
+            "### file_changes\n- a.py\n\n"
+            "### test_plan\npytest\n\n"
+            "### verification_command\necho ok\n\n"
+            "### success_criteria\nAll pass.\n\n"
+            "### state_diagram\nInbox -> Plan Ready -> Executing -> Done\n\n"
+            "### gate_checkpoints\nG1: Plan Valid\n"
+        )
+        Path("docs/superpowers/plans/TASK-NO-FALLBACK-plan.md").write_text(plan, encoding="utf-8")
+        r = self._run("plan", "TASK-NO-FALLBACK", "--approve")
+        self.assertEqual(r.returncode, 0, f"plan failed: {r.stderr}")
+
+        # After plan --approve, no child tasks should be created
+        sm = StateMachine()
+        children = sm.get_children("TASK-NO-FALLBACK")
+        self.assertEqual(len(children), 0, f"Expected 0 children without Task sections, got {children}")
 
 
 if __name__ == "__main__":
