@@ -1003,6 +1003,18 @@ def cmd_finish(args) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    # Mark sandbox as destroyed in snapshot
+    try:
+        from snapshot import SnapshotManager
+        snap_mgr = SnapshotManager()
+        snap = snap_mgr.load_snapshot(args.task_id)
+        if snap.sandbox:
+            snap.sandbox.destroyed_at = datetime.now(timezone(timedelta(hours=8))).isoformat()
+            snap.sandbox.worktree_path = ""
+        snap_mgr._write_snapshot(snap)
+    except Exception as e:
+        print(f"[WARN] Could not update sandbox destroyed marker: {e}", file=sys.stderr)
+
     # Cleanup sandbox AFTER verification and state transition
     from sandbox import SandboxManager, SandboxError
     sb_mgr = SandboxManager(repo_root=".")

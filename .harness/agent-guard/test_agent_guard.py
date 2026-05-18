@@ -884,6 +884,40 @@ class TestFinishSnapshot(unittest.TestCase):
         self.assertEqual(len(finished_snap.plan_progress.in_progress), 0)
         self.assertEqual(len(finished_snap.plan_progress.completed), 3)
 
+    def test_finish_clears_sandbox_paths(self):
+        """After finish, snapshot sandbox worktree_path must be cleared and destroyed_at set."""
+        from cli import cmd_finish
+        from snapshot import SnapshotManager, SandboxInfo
+        import argparse
+
+        sm = StateMachine()
+        sm.init_task("T-SBOX-CLEAR")
+        sm.transition("T-SBOX-CLEAR", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-SBOX-CLEAR", State.EXECUTING, skip_gates=True)
+        sm.transition("T-SBOX-CLEAR", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-SBOX-CLEAR", State.ENTROPY_REVIEW, skip_gates=True)
+
+        snap_mgr = SnapshotManager()
+        snap = snap_mgr.create_snapshot("T-SBOX-CLEAR")
+        snap.sandbox = SandboxInfo(
+            worktree_path=".worktrees/T-SBOX-CLEAR",
+            branch="feature/T-SBOX-CLEAR",
+            created_at="2026-01-01T00:00:00+08:00",
+        )
+        snap_mgr._write_snapshot(snap)
+
+        plan_path = Path("docs/superpowers/plans/T-SBOX-CLEAR-plan.md")
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text("# Plan\n## verification_command\necho ok\n")
+
+        args = argparse.Namespace(task_id="T-SBOX-CLEAR")
+        rc = cmd_finish(args)
+        self.assertEqual(rc, 0)
+
+        finished_snap = snap_mgr.load_snapshot("T-SBOX-CLEAR")
+        self.assertEqual(finished_snap.sandbox.worktree_path, "")
+        self.assertTrue(finished_snap.sandbox.destroyed_at)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,7 @@ class SandboxInfo:
     worktree_path: str = ""
     branch: str = ""
     created_at: str = ""
+    destroyed_at: str = ""
 
 
 @dataclass
