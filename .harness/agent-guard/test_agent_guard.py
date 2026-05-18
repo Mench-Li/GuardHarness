@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from gates import g1_plan_valid, g2_complexity_budget, g4_surgical_check, g5_verification_proof
+from gates import g1_plan_valid, g2_complexity_budget, g4_surgical_check, g5_verification_proof, _get_sandbox_cwd
 from lease import LeaseManager
 from snapshot import (
     LeaseInfo,
@@ -150,6 +150,12 @@ class TestStateMachine(unittest.TestCase):
         tasks = self.sm.list_tasks(state_filter=State.PLAN_READY)
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0].task_id, "T-002")
+
+    def test_list_tasks_preserves_state_in_task_id(self):
+        self.sm.init_task("TASK-001-state-diagram")
+        tasks = self.sm.list_tasks()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].task_id, "TASK-001-state-diagram")
 
 
 class TestSnapshotManager(unittest.TestCase):
@@ -646,6 +652,38 @@ class TestSandboxCLI(unittest.TestCase):
         destroy_calls = [call for call in mock_run.call_args_list
                          if len(call.args[0]) >= 3 and call.args[0][:3] == ["git", "worktree", "remove"]]
         self.assertFalse(destroy_calls, "reused worktree should NOT be destroyed when transition fails")
+
+
+    def test_get_sandbox_cwd_prefers_snapshot(self):
+        """_get_sandbox_cwd should prefer the worktree_path recorded in snapshot."""
+        from snapshot import Snapshot, SandboxInfo, SnapshotManager
+
+        sm = StateMachine()
+        sm.init_task("TASK-SANDBOX-TEST")
+        snap_mgr = SnapshotManager()
+        snap = Snapshot(
+            task_id="TASK-SANDBOX-TEST",
+            current_state="Executing",
+            previous_state="Plan Ready",
+            transition_time="2026-01-01T00:00:00+08:00",
+            sandbox=SandboxInfo(
+                worktree_path="/tmp/fake-worktree",
+                branch="test-branch",
+                created_at="2026-01-01T00:00:00+08:00",
+            ),
+        )
+        snap_mgr._write_snapshot(snap)
+
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="true\n"),
+            ) as mock_run:
+                cwd = _get_sandbox_cwd("TASK-SANDBOX-TEST")
+                expected = str(Path("/tmp/fake-worktree"))
+                self.assertEqual(cwd, expected)
+                mock_run.assert_called_once()
+                self.assertEqual(mock_run.call_args[1].get("cwd"), expected)
 
 
 if __name__ == "__main__":

@@ -204,12 +204,38 @@ def g3_entropy_check(task_id: str, **kwargs: Any) -> dict[str, Any]:
     }
 
 
-def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any) -> dict[str, Any]:
-    from sandbox import SandboxManager
+def _get_sandbox_cwd(task_id: str) -> str:
+    """获取任务对应的 sandbox 工作目录，优先使用 snapshot 中记录的路径。"""
+    from snapshot import SnapshotManager
 
+    snap_mgr = SnapshotManager()
+    try:
+        snap = snap_mgr.load_snapshot(task_id)
+        if snap.sandbox and snap.sandbox.worktree_path:
+            path = Path(snap.sandbox.worktree_path)
+            if path.exists():
+                result = subprocess.run(
+                    ["git", "rev-parse", "--is-inside-work-tree"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    cwd=str(path),
+                )
+                if result.returncode == 0 and result.stdout.strip() == "true":
+                    return str(path)
+    except Exception:
+        pass
+
+    from sandbox import SandboxManager
     mgr = SandboxManager()
     sandbox = mgr.get_sandbox(task_id)
-    cwd = str(mgr._worktree_path(task_id)) if sandbox else "."
+    if sandbox:
+        return str(mgr._worktree_path(task_id))
+    return "."
+
+
+def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any) -> dict[str, Any]:
+    cwd = _get_sandbox_cwd(task_id)
 
     try:
         # Collect modified files: staged + unstaged + untracked
@@ -365,11 +391,7 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
         }
 
     if cwd is None:
-        from sandbox import SandboxManager
-        mgr = SandboxManager()
-        sandbox = mgr.get_sandbox(task_id)
-        if sandbox:
-            cwd = str(mgr._worktree_path(task_id))
+        cwd = _get_sandbox_cwd(task_id)
 
     try:
         result = subprocess.run(
