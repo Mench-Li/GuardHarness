@@ -19,41 +19,59 @@ import os
 import sys
 from pathlib import Path
 
+_CONSTRAINT_PREFIX = (
+    "Before loading any skill, you MUST read: "
+    "1. .harness/team/shared-axioms.md "
+    "2. .harness/team/standards.md "
+    "3. .claude/memory/MEMORY.md (if exists). "
+)
+
 COMMANDS: dict[str, str] = {
     "/init-feature": (
         "[Harness] /init-feature detected. "
-        "You MUST invoke the brainstorming skill via the Skill tool and follow its workflow exactly. "
+        + _CONSTRAINT_PREFIX
+        + "You MUST invoke the brainstorming skill via the Skill tool and follow its workflow exactly. "
         "Ask clarifying questions one at a time, propose 2-3 solutions with trade-offs, "
-        "clearly mark the simplest option, and save the final spec to docs/superpowers/specs/."
+        "clearly mark the simplest option, and save the final spec to docs/superpowers/specs/. "
+        "After completion, run: python .harness/agent-guard/cli.py init TASK-001 --spec docs/superpowers/specs/feature.md"
     ),
     "/plan-feature": (
         "[Harness] /plan-feature detected. "
-        "You MUST invoke the writing-plans skill via the Skill tool. "
+        + _CONSTRAINT_PREFIX
+        + "You MUST invoke the writing-plans skill via the Skill tool. "
         "Read the provided spec, create an implementation plan following plan-schema.yaml constraints, "
-        "ensure every task has a verifiable goal (Goal + Verify), no TODOs or placeholders, "
-        "and save the plan to docs/superpowers/plans/."
+        "ensure every task has a verifiable goal (Goal + Verify), no 待办占位符 or placeholders, "
+        "and save the plan to docs/superpowers/plans/. "
+        "After completion, run: python .harness/agent-guard/cli.py plan TASK-001 --approve"
     ),
     "/execute-plan": (
         "[Harness] /execute-plan detected. "
-        "Determine complexity: if many independent tasks, invoke subagent-driven-development skill; "
+        + _CONSTRAINT_PREFIX
+        + "Determine complexity: if many independent tasks, invoke subagent-driven-development skill; "
         "otherwise invoke executing-plans skill. Execute step by step, run tests after each task, "
-        "stop and report on failure, and verify diff only touches planned files (no drive-by refactoring)."
+        "stop and report on failure, and verify diff only touches planned files (no drive-by refactoring). "
+        "After completion, run: python .harness/agent-guard/cli.py execute TASK-001"
     ),
     "/finish-branch": (
         "[Harness] /finish-branch detected. "
-        "You MUST invoke the finishing-a-development-branch skill. "
+        + _CONSTRAINT_PREFIX
+        + "You MUST invoke the finishing-a-development-branch skill. "
         "Run full test suite, check coverage (threshold 80%), run linter, read finishing-policy.yaml, "
-        "and auto-decide merge / PR / keep_branch. Then write observation and update CLAUDE.md."
+        "and auto-decide merge / PR / keep_branch. Then write observation and update CLAUDE.md. "
+        "After completion, run: python .harness/agent-guard/cli.py finish TASK-001"
     ),
     "/fix-bug": (
         "[Harness] /fix-bug detected. "
-        "First invoke systematic-debugging skill to find root cause, "
+        + _CONSTRAINT_PREFIX
+        + "First invoke systematic-debugging skill to find root cause, "
         "then invoke test-driven-development skill to write a failing test before fixing. "
-        "Keep the fix minimal, no over-engineering, and write a failure observation afterwards."
+        "Keep the fix minimal, no over-engineering, and write a failure observation afterwards. "
+        "After completion, run: python .harness/agent-guard/cli.py finish TASK-001"
     ),
     "/reflect": (
         "[Harness] /reflect detected. "
-        "You MUST invoke the memory-reflection skill. "
+        + _CONSTRAINT_PREFIX
+        + "You MUST invoke the memory-reflection skill. "
         "Scan all observations, extract stable patterns, update CLAUDE.md dynamic blocks, "
         "detect cross-project patterns to upgrade to global axioms, and record reflection cost metrics."
     ),
