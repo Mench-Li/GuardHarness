@@ -986,5 +986,60 @@ class TestGetSandboxCwdFailClosed(unittest.TestCase):
         self.assertEqual(cwd, ".")
 
 
+class TestListIncludeArchived(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        Path(".harness/agent-guard/state").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_list_default_hides_archived(self):
+        """list without --include-archived should hide archived tasks."""
+        from cli import cmd_list
+        import argparse
+
+        sm = StateMachine()
+        sm.init_task("T-ARCHIVED")
+        sm.transition("T-ARCHIVED", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-ARCHIVED", State.EXECUTING, skip_gates=True)
+        sm.transition("T-ARCHIVED", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-ARCHIVED", State.ENTROPY_REVIEW, skip_gates=True)
+        sm.transition("T-ARCHIVED", State.DONE, skip_gates=True)
+        task = sm.get_task("T-ARCHIVED")
+        task.metadata["archived"] = True
+        sm._save_task(task)
+
+        sm.init_task("T-ACTIVE")
+        sm.transition("T-ACTIVE", State.PLAN_READY, skip_gates=True)
+
+        args = argparse.Namespace(state=None, recoverable=False, flat=True, no_children=False, include_archived=False)
+        rc = cmd_list(args)
+        self.assertEqual(rc, 0)
+
+    def test_list_include_archived_shows_archived(self):
+        """list with --include-archived should show archived tasks."""
+        from cli import cmd_list
+        import argparse
+
+        sm = StateMachine()
+        sm.init_task("T-ARCHIVED2")
+        sm.transition("T-ARCHIVED2", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-ARCHIVED2", State.EXECUTING, skip_gates=True)
+        sm.transition("T-ARCHIVED2", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-ARCHIVED2", State.ENTROPY_REVIEW, skip_gates=True)
+        sm.transition("T-ARCHIVED2", State.DONE, skip_gates=True)
+        task = sm.get_task("T-ARCHIVED2")
+        task.metadata["archived"] = True
+        sm._save_task(task)
+
+        args = argparse.Namespace(state=None, recoverable=False, flat=True, no_children=False, include_archived=True)
+        rc = cmd_list(args)
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

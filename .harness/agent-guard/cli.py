@@ -1116,7 +1116,7 @@ def cmd_list(args) -> int:
     if args.state:
         state_filter = State(args.state)
 
-    tasks = sm.list_tasks(state_filter=state_filter)
+    tasks = sm.list_tasks(state_filter=state_filter, include_archived=getattr(args, 'include_archived', False))
     if args.recoverable:
         tasks = [t for t in tasks if sm.is_recoverable(t.task_id)]
     if args.no_children:
@@ -1444,6 +1444,7 @@ def main(argv: list[str] | None = None) -> int:
     p_list.add_argument("--recoverable", action="store_true", help="Only show recoverable tasks")
     p_list.add_argument("--flat", action="store_true", help="Flat list (show parent metadata instead of tree)")
     p_list.add_argument("--no-children", action="store_true", help="Exclude sub-tasks (tasks with a parent)")
+    p_list.add_argument("--include-archived", action="store_true", help="Include archived tasks in listing")
 
     # resume
     p_resume = subparsers.add_parser("resume", help="Resume task from snapshot")
