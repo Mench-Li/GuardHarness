@@ -63,6 +63,12 @@ COPY_ITEMS: list[tuple[str, str]] = [
     (".claude/skills", "Claude Code Slash Command Skills"),
 ]
 
+# 文档重定向：避免覆盖目标项目根目录的 README.md / CLAUDE.md，放到 .harness/ 下
+DOC_RELOCATIONS: dict[str, str] = {
+    "CLAUDE.md": ".harness/CLAUDE.md",
+    "README.md": ".harness/README.md",
+}
+
 DIRS_TO_CREATE = [
     "docs/superpowers/specs",
     "docs/superpowers/plans",
@@ -183,22 +189,26 @@ def update_gitignore(target_dir: Path) -> None:
         _info(".gitignore 已包含必要规则，跳过")
 
 
-def collect_files(harness_root: Path) -> list[Path]:
-    """收集所有需要复制的相对路径清单（用于 --list）。"""
-    files: list[Path] = []
+def collect_files(harness_root: Path) -> list[tuple[Path, Path]]:
+    """收集所有需要复制的文件清单（用于 --list）。
+
+    返回 (源相对路径, 目标相对路径) 列表，目标路径已应用重定向。
+    """
+    files: list[tuple[Path, Path]] = []
     for rel_path, _ in COPY_ITEMS:
         src = harness_root / rel_path
         if not src.exists():
             continue
+        dst_rel = DOC_RELOCATIONS.get(rel_path, rel_path)
         if src.is_dir():
             for item in src.rglob("*"):
                 if item.is_file():
                     rel = item.relative_to(harness_root)
                     if not should_exclude_file(rel):
-                        files.append(rel)
+                        files.append((rel, rel))
         else:
-            files.append(Path(rel_path))
-    return sorted(files)
+            files.append((Path(rel_path), Path(dst_rel)))
+    return sorted(files, key=lambda x: x[0])
 
 
 def should_exclude_file(rel_path: Path) -> bool:
@@ -237,9 +247,10 @@ def export_template(harness_root: Path, export_dir: Path, yes: bool = False) -> 
     print("复制文件...")
     for rel_path, desc in COPY_ITEMS:
         src = harness_root / rel_path
-        dst = export_dir / rel_path
+        dst_rel = DOC_RELOCATIONS.get(rel_path, rel_path)
+        dst = export_dir / dst_rel
         if copy_item(src, dst, yes=True):
-            _ok(f"{rel_path} -> {desc}")
+            _ok(f"{rel_path} -> {dst_rel} ({desc})")
 
     print("\n创建目录结构...")
     for d in DIRS_TO_CREATE:
@@ -255,8 +266,11 @@ def export_template(harness_root: Path, export_dir: Path, yes: bool = False) -> 
     with open(manifest, "w", encoding="utf-8") as f:
         f.write("# GuardHarness 文件清单\n")
         f.write(f"# 生成时间: {__import__('datetime').datetime.now().isoformat()}\n\n")
-        for p in manifest_files:
-            f.write(f"{p.as_posix()}\n")
+        for src_rel, dst_rel in manifest_files:
+            if src_rel != dst_rel:
+                f.write(f"{src_rel.as_posix()} -> {dst_rel.as_posix()}\n")
+            else:
+                f.write(f"{src_rel.as_posix()}\n")
     _ok(f"已生成文件清单: {manifest}")
 
     print(f"""
@@ -330,9 +344,10 @@ def install(harness_root: Path, target_dir: Path, yes: bool = False) -> int:
     print("复制文件...")
     for rel_path, desc in COPY_ITEMS:
         src = harness_root / rel_path
-        dst = target_dir / rel_path
+        dst_rel = DOC_RELOCATIONS.get(rel_path, rel_path)
+        dst = target_dir / dst_rel
         if copy_item(src, dst, yes):
-            _ok(f"{rel_path} -> {desc}")
+            _ok(f"{rel_path} -> {dst_rel} ({desc})")
 
     print("\n创建目录结构...")
     for d in DIRS_TO_CREATE:
@@ -411,9 +426,13 @@ def main(argv: list[str] | None = None) -> int:
     # 列出清单
     if args.list:
         print("\n需要复制的文件清单：\n")
-        for p in collect_files(harness_root):
-            print(f"  {p.as_posix()}")
-        print(f"\n共计 {len(collect_files(harness_root))} 个文件")
+        manifest_files = collect_files(harness_root)
+        for src_rel, dst_rel in manifest_files:
+            if src_rel != dst_rel:
+                print(f"  {src_rel.as_posix()} -> {dst_rel.as_posix()}")
+            else:
+                print(f"  {src_rel.as_posix()}")
+        print(f"\n共计 {len(manifest_files)} 个文件")
         return 0
 
     # 导出到目录
