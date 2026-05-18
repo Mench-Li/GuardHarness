@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -40,6 +41,36 @@ from snapshot import (
 from state_machine import State, StateMachine, StateMachineError, TaskState
 
 
+_PSEUDO_TASK_PATTERNS = [
+    re.compile(r"-Step-"),
+    re.compile(r"-file-changes$"),
+    re.compile(r"-gate-checkpoints$"),
+    re.compile(r"-state-diagram$"),
+    re.compile(r"-success-criteria$"),
+    re.compile(r"-task-description$"),
+    re.compile(r"-test-plan$"),
+    re.compile(r"-verification-command$"),
+]
+
+
+def _is_pseudo_task(task_id: str) -> bool:
+    return any(p.search(task_id) for p in _PSEUDO_TASK_PATTERNS)
+
+
+def _has_valid_source_plan(task: TaskState) -> bool:
+    # Leaf tasks without a parent are normal standalone tasks; allow them
+    if not task.metadata.get("parent"):
+        return True
+    # Child tasks must have a valid source_plan or spec_path
+    source_plan = task.metadata.get("source_plan")
+    if source_plan and Path(source_plan).exists():
+        return True
+    spec_path = task.metadata.get("spec_path")
+    if spec_path and Path(spec_path).exists():
+        return True
+    return False
+
+
 def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
     """从 backlog 中认领一个 Plan Ready 状态且没有活跃 lease 的 task。
 
@@ -52,6 +83,10 @@ def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
     lm = LeaseManager()
 
     tasks = sm.list_tasks(state_filter=State.PLAN_READY)
+    # Auto-claim should pick executable leaf work, not orchestration parents.
+    tasks = [t for t in tasks if not sm.get_children(t.task_id)]
+    tasks = [t for t in tasks if _has_valid_source_plan(t)]
+    tasks = [t for t in tasks if not _is_pseudo_task(t.task_id)]
     tasks = sorted(tasks, key=lambda t: t.updated_at)
 
     for task in tasks:
@@ -751,25 +786,14 @@ def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
     print(f"Lease acquired: {lease['holder']} (expires {lease['expires_at']})")
 
     sandbox_created_here = False
+    sandbox_info = None
     if not args.no_sandbox:
         from sandbox import SandboxManager, SandboxError
         sb_mgr = SandboxManager(repo_root=".")
         try:
-            info = sb_mgr.create(task_id)
-            sandbox_created_here = info.get("created", True)
-            print(f"Sandbox created at {info['worktree_path']}")
-            try:
-                from snapshot import SnapshotManager, SandboxInfo
-                snap_mgr = SnapshotManager()
-                snap = snap_mgr.load_snapshot(task_id)
-                snap.sandbox = SandboxInfo(
-                    worktree_path=info["worktree_path"],
-                    branch=info["branch"],
-                    created_at=info["created_at"],
-                )
-                snap_mgr._write_snapshot(snap)
-            except Exception:
-                pass
+            sandbox_info = sb_mgr.create(task_id)
+            sandbox_created_here = sandbox_info.get("created", True)
+            print(f"Sandbox created at {sandbox_info['worktree_path']}")
         except SandboxError as e:
             print(f"Sandbox creation failed: {e}", file=sys.stderr)
             print("Use --no-sandbox to proceed without isolation.", file=sys.stderr)
@@ -796,6 +820,20 @@ def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
 
         # If this is a child task, auto-transition parent from Plan Ready to Executing
         _maybe_transition_parent_to_executing(task_id)
+
+    if sandbox_info:
+        try:
+            from snapshot import SnapshotManager, SandboxInfo
+            snap_mgr = SnapshotManager()
+            snap = snap_mgr.load_snapshot(task_id)
+            snap.sandbox = SandboxInfo(
+                worktree_path=sandbox_info["worktree_path"],
+                branch=sandbox_info["branch"],
+                created_at=sandbox_info["created_at"],
+            )
+            snap_mgr._write_snapshot(snap)
+        except Exception:
+            pass
 
     _auto_mark_first_step_in_progress(task_id)
     return 0
@@ -870,7 +908,7 @@ def cmd_claim(args) -> int:
 
     print(f"Claimed task: {task_id}")
     print(f"Lease: {lease['holder']} (expires {lease['expires_at']})")
-    print(f"Next: python .harness/agent-guard/cli.py execute {task_id}")
+    print(f"Next: python .harness/agent-guard/cli.py execute {task_id} --holder {lease['holder']}")
     return 0
 
 

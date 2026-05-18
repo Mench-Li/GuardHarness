@@ -8,6 +8,9 @@ import time
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from state_machine import State, StateMachine
+
 
 class TestAgentGuardE2E(unittest.TestCase):
     def setUp(self):
@@ -632,6 +635,28 @@ class TestAgentGuardE2E(unittest.TestCase):
         # Should NOT contain Step-level subtasks
         self.assertNotIn("TASK-SPLIT-001-Setup", r.stdout, "Step-level subtask should NOT exist")
         self.assertNotIn("TASK-SPLIT-001-Implement", r.stdout, "Step-level subtask should NOT exist")
+
+    def test_claim_skips_pseudo_tasks(self):
+        self._run("init", "TASK-PARENT-FILTER")
+        plan = (
+            "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n"
+            "## success_criteria\nY.\n\n## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Done\n\n"
+            "## gate_checkpoints\nG1: Plan Valid\n"
+        )
+        Path("docs/superpowers/plans/TASK-PARENT-FILTER-plan.md").write_text(plan, encoding="utf-8")
+        self._run("plan", "TASK-PARENT-FILTER", "--approve")
+
+        # Manually create a pseudo child task in Plan Ready without source_plan
+        sm = StateMachine()
+        sm.init_task("TASK-PARENT-FILTER-Step-Commit", metadata={"parent": "TASK-PARENT-FILTER"})
+        sm.transition("TASK-PARENT-FILTER-Step-Commit", State.PLAN_READY, skip_gates=True)
+
+        # claim should raise LeaseError because the only Plan Ready task is a pseudo task
+        r = self._run("claim")
+        self.assertEqual(r.returncode, 1, f"claim should fail when only pseudo tasks are available: {r.stdout}")
+        self.assertIn("No available tasks", r.stdout + r.stderr)
 
 
 if __name__ == "__main__":
