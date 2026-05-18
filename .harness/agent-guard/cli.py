@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import uuid
@@ -1370,6 +1371,11 @@ def cmd_sandbox(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-guard", description="Agent-Guard state-driven control plane")
+    parser.add_argument(
+        "--state-root",
+        default=None,
+        help="Override Agent-Guard state root directory (default: .harness/agent-guard)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # init
@@ -1468,6 +1474,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sb_patch.add_argument("task_id")
 
     args = parser.parse_args(argv)
+
+    if args.state_root:
+        os.environ["GUARDHARNESS_ROOT"] = args.state_root
 
     handlers = {
         "init": cmd_init,

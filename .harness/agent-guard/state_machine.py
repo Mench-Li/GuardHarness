@@ -106,6 +106,9 @@ class StateMachine:
     """Manages task state transitions with gate enforcement."""
 
     def __init__(self, base_dir: str | None = None):
+        import os
+        if base_dir is None:
+            base_dir = os.environ.get("GUARDHARNESS_ROOT")
         self.base_dir = Path(base_dir) if base_dir else Path(".harness/agent-guard")
         self.state_dir = self.base_dir / "state"
         self.state_dir.mkdir(parents=True, exist_ok=True)

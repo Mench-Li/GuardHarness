@@ -926,6 +926,24 @@ class TestFinishSnapshot(unittest.TestCase):
         self.assertTrue(finished_snap.sandbox.destroyed_at)
 
 
+class TestStateRootAnchoring(unittest.TestCase):
+    def test_state_machine_reads_guardharness_root_env(self):
+        """StateMachine should use GUARDHARNESS_ROOT env var when set."""
+        import os
+        from state_machine import StateMachine
+
+        custom_root = tempfile.mkdtemp()
+        os.environ["GUARDHARNESS_ROOT"] = custom_root
+        try:
+            sm = StateMachine()
+            self.assertEqual(str(sm.base_dir), str(Path(custom_root)))
+            self.assertTrue(sm.state_dir.exists())
+        finally:
+            del os.environ["GUARDHARNESS_ROOT"]
+            import shutil
+            shutil.rmtree(custom_root)
+
+
 class TestGetSandboxCwdFailClosed(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
