@@ -2,8 +2,8 @@
 
 > **AI 原生开发工作流模板** —— 基于 Superpowers × Harness Engineering，让 Claude Code 越用越聪明。
 >
-> 版本: 2.7 | 日期: 2026-05-18
-> 新增: 跨平台原子 Lease + G4 硬阻断增强（staged/unstaged/untracked 全检测 + file_changes 严格匹配）+ Snapshot 上下文保留（中断恢复不丢进度）+ Sandbox 自动清理（失败时释放 Lease）
+> 版本: 2.8 | 日期: 2026-05-18
+> 新增: 自动认领过滤伪任务 + 去除中点 fallback 拆分 + Gate 优先 snapshot sandbox 路径 + 父任务归档未完成 children + snapshot 写入失败显式报警 + 历史伪任务清理脚本
 
 ---
 
@@ -185,6 +185,9 @@ Agent-Guard 是本项目的**状态驱动控制平面**，将原本基于 prompt
 | **旁路状态** | `Blocked`（外部依赖）、`Needs Simplification`（熵审查失败回流）|
 | **中断恢复** | 任务中断后通过 Snapshot 机制恢复，只加载必要上下文（目标 `< 30 秒`）|
 | **Lease 互斥** | 非终端状态自动持有 Lease；**v2.7 新增跨平台文件锁**（Windows `msvcrt.locking` / Unix `fcntl.flock`）+ 原子写入，彻底杜绝竞争条件 |
+| **自动认领过滤** | **v2.8 新增**：`claim` 自动过滤伪子任务（如 `-Step-`、`-file-changes` 等命名模式）和来源不明的任务，只认领合法 leaf task |
+| **父任务归档** | **v2.8 新增**：父任务 `finish` 时，所有未完成的子任务自动标记为 `Done` + `archived`，避免污染 backlog |
+| **Snapshot 写入告警** | **v2.8 新增**：sandbox 信息写入 snapshot 失败时不再静默吞异常，向 stderr 输出明确警告 |
 
 **状态机（8 状态）：**
 
@@ -480,7 +483,9 @@ L3 组织级: .harness/workflows/      —— 工作流定义和模型路由
 │   │   ├── test_e2e.py                   # E2E 测试
 │   │   ├── state/                        # 状态持久化
 │   │   ├── snapshots/                    # Snapshot 文件
-│   │   └── leases/                       # Lease 文件
+│   │   ├── leases/                       # Lease 文件
+│   │   └── scripts/                      # 运维脚本
+│   │       └── archive-legacy-tasks.py   # 历史伪任务归档脚本
 │   ├── superpowers/                      # L1: 项目级配置（必需）
 │   │   ├── skills/                       # 17 个 Superpowers 技能定义
 │   │   │   ├── memory-reflection.md      # 记忆提炼核心技能
@@ -1178,10 +1183,10 @@ generated_by: manual | auto-observe
 | `init <task-id> [--spec <path>]` | → Inbox | 无 | 创建新任务 |
 | `plan <task-id> --approve` | Inbox → Plan Ready | G1 + G2 | 批准 plan（G2 超预算时自动语义感知拆分，检测重复；拆分后父任务 snapshot 自动记录子任务列表与进度） |
 | `execute [<task-id>]` | Plan Ready → Executing | G3 | 开始执行，获取 Lease，**自动标记 plan 第 1 步为 in_progress**（省略 task-id 则自动认领） |
-| `claim [--execute]` | — | — | 从 backlog 认领下一个 Plan Ready 任务 |
+| `claim [--execute]` | — | — | 从 backlog 认领下一个 Plan Ready 任务（**v2.8 过滤伪任务和来源不明任务**） |
 | `patch <task-id>` | Executing → Patch Ready | G4 | 标记代码完成 |
 | `review <task-id>` | Patch Ready → Entropy Review | 无 | 进入熵审查 |
-| `finish <task-id>` | Entropy Review → Done | G5 | 完成验证，释放 Lease |
+| `finish <task-id>` | Entropy Review → Done | G5 | 完成验证，释放 Lease；**v2.8 自动归档未完成子任务** |
 | `progress <task-id> --step N --status done` | — | — | 更新 plan 步骤完成进度到 snapshot（**强制**：每个 step 完成后必须更新，禁止批量）；**子任务自动同步进度到父任务** |
 
 **旁路命令：**
@@ -1197,12 +1202,18 @@ generated_by: manual | auto-observe
 | 命令 | 用途 |
 |:---|:---|
 | `status <task-id>` | 查看任务状态和转换历史 |
-| `list [--state <s>] [--recoverable] [--flat] [--no-children]` | 列出任务（默认树形，子任务缩进显示） |
+| `list [--state <s>] [--recoverable] [--flat] [--no-children]` | 列出任务（默认树形，子任务缩进显示；**v2.8 默认过滤 archived 任务**） |
 | `resume <task-id>` | 中断后恢复，加载 Snapshot |
 | `heartbeat <task-id>` | 发送 Lease 心跳 |
 | `gate-check <gate> <task-id>` | 手动触发 Gate 验证 |
 | `sandbox create <task-id>` | 手动创建沙盒工作区 |
 | `sandbox destroy <task-id> [--patch]` | 销毁沙盒并可选提取 patch |
+
+**运维脚本：**
+
+| 脚本 | 用途 |
+|:---|:---|
+| `.harness/agent-guard/scripts/archive-legacy-tasks.py` | 批量归档历史伪子任务（如 TASK-018 遗留任务） |
 
 ### 辅助脚本
 
@@ -1417,6 +1428,28 @@ pip install pyyaml
 - 或者所有模式已在现有 patterns/ 中
 
 **解决：** 继续使用 Harness 工作流完成更多迭代，积累足够观察数据。
+
+### 问题：claim 报错 "No available tasks" 但 list 显示有 Plan Ready 任务
+
+**症状：** `python .harness/agent-guard/cli.py claim` 报错没有可用任务，但 `list` 显示存在 Plan Ready 状态的任务
+
+**原因（v2.8+）：** `claim` 会自动过滤以下任务：
+1. 有子任务的父母任务（只认领 leaf task）
+2. 伪子任务（任务名匹配 `-Step-`、`-file-changes`、`-gate-checkpoints` 等模式）
+3. 没有有效 `source_plan` 或 `spec_path` 的子任务
+
+**解决：**
+1. 检查任务是否为 leaf task（无 children）
+2. 检查任务名是否符合命名规范（避免伪任务命名模式）
+3. 检查任务 metadata 是否包含有效的 `source_plan` 路径
+
+### 问题：list 不显示已完成的任务
+
+**症状：** `python .harness/agent-guard/cli.py list` 不显示某些已完成的任务
+
+**原因（v2.8+）：** 被标记为 `archived` 的任务默认从 `list` 中过滤。父任务 `finish` 时会自动将其未完成的子任务标记为 `Done` + `archived`。
+
+**解决：** archived 是预期行为，避免已完成的子任务污染 backlog。如需查看所有任务（含 archived），目前没有专用 flag，可直接查看 state 文件。
 
 ### 问题：Windows 下 bash 脚本无法运行
 

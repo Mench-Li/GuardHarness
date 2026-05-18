@@ -1,8 +1,8 @@
 # GuardHarness 使用手册
 
-> **版本:** 2.7 | **日期:** 2026-05-18 | **基于:** Superpowers 5.0.7 + Harness Engineering + Agent-Guard
+> **版本:** 2.8 | **日期:** 2026-05-18 | **基于:** Superpowers 5.0.7 + Harness Engineering + Agent-Guard
 >
-> **更新内容**: 跨平台原子 Lease（文件锁 + 原子写入）+ G4 硬阻断增强（staged/unstaged/untracked 全检测 + file_changes 严格匹配）+ Snapshot 上下文保留（中断恢复不丢进度）+ Sandbox 自动清理（失败时释放 Lease）
+> **更新内容**: 自动认领过滤伪任务（_claim_next_task 双层过滤）+ 去除中点 fallback 拆分 + Gate 优先 snapshot sandbox 路径 + 父任务归档未完成 children + snapshot 写入失败显式报警 + 历史伪任务清理脚本
 >
 > 本文档面向** Windows 开发者**优化，包含完整的跨项目迁移步骤。
 
