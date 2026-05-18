@@ -312,6 +312,87 @@ class TestAgentGuardE2E(unittest.TestCase):
                       if child_id in s.description]
         self.assertTrue(child_step, f"parent snapshot should mark child step as completed, got completed={parent_snap.plan_progress.completed}")
 
+    def test_parent_auto_transition_when_all_children_done(self):
+        """When all child tasks reach Done, parent should auto-transition from Plan Ready to Executing."""
+        self._run("init", "TASK-PARENT-AUTO")
+        files = "\n".join([f"- src/file{i}.py" for i in range(21)])
+        plan = (
+            "# Plan\n\n"
+            "## task_description\nAdd feature.\n\n"
+            "## file_changes\n"
+            f"{files}\n\n"
+            "## test_plan\nRun pytest\n\n"
+            "## verification_command\necho ok\n\n"
+            "## success_criteria\nWorks.\n\n"
+            "## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n"
+            "## gate_checkpoints\nG1: Plan Valid\n\n"
+            "### Task 1: Alpha\nStep 1.\n\n"
+            "### Task 2: Beta\nStep 2.\n"
+        )
+        Path("docs/superpowers/plans/TASK-PARENT-AUTO-plan.md").write_text(plan, encoding="utf-8")
+
+        # Plan and auto-split into Task-level subtasks
+        r = self._run("plan", "TASK-PARENT-AUTO", "--approve", "--auto-split")
+        self.assertEqual(r.returncode, 0, f"plan failed: {r.stderr}")
+        self.assertIn("G1 PASSED", r.stdout)
+
+        # Parent should be in Plan Ready after split
+        r = self._run("status", "TASK-PARENT-AUTO")
+        self.assertIn("Plan Ready", r.stdout, "parent should stay in Plan Ready after split")
+
+        # Baseline plan files so G4 doesn't flag them
+        subprocess.run(["git", "add", "docs/superpowers/plans/"], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "baseline plans"], capture_output=True)
+
+        # Find both child task IDs
+        r = self._run("list")
+        self.assertEqual(r.returncode, 0, f"list failed: {r.stderr}")
+        child_ids = []
+        for line in r.stdout.splitlines():
+            if "TASK-PARENT-AUTO-Task-" in line:
+                parts = line.strip().split()
+                for p in parts:
+                    if p.startswith("TASK-PARENT-AUTO-Task-"):
+                        child_ids.append(p)
+                        break
+        self.assertEqual(len(child_ids), 2, f"Expected 2 child tasks, got: {child_ids} in {r.stdout}")
+
+        # Complete each child task
+        child_plan = (
+            "# Plan\n\n"
+            "## task_description\nX\n\n"
+            "## file_changes\n- a.py\n\n"
+            "## test_plan\npytest\n\n"
+            "## verification_command\necho ok\n\n"
+            "## success_criteria\nY.\n\n"
+            "## state_diagram\nInbox -> Done\n\n"
+            "## gate_checkpoints\nG1\n"
+        )
+        # Write all child plans and baseline them before any child lifecycle starts
+        for child_id in child_ids:
+            Path(f"docs/superpowers/plans/{child_id}-plan.md").write_text(child_plan, encoding="utf-8")
+        subprocess.run(["git", "add", "docs/superpowers/plans/"], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "baseline child plans"], capture_output=True)
+
+        for child_id in child_ids:
+            r = self._run("plan", child_id, "--approve")
+            self.assertEqual(r.returncode, 0, f"plan {child_id} failed: {r.stderr}")
+            r = self._run("execute", child_id, "--no-sandbox")
+            self.assertEqual(r.returncode, 0, f"execute {child_id} failed: {r.stderr}")
+            r = self._run("progress", child_id, "--step", "1", "--status", "done")
+            self.assertEqual(r.returncode, 0, f"progress {child_id} failed: {r.stderr}")
+            r = self._run("patch", child_id)
+            self.assertEqual(r.returncode, 0, f"patch {child_id} failed: {r.stdout} {r.stderr}")
+            r = self._run("review", child_id)
+            self.assertEqual(r.returncode, 0, f"review {child_id} failed: {r.stderr}")
+            r = self._run("finish", child_id)
+            self.assertEqual(r.returncode, 0, f"finish {child_id} failed: {r.stderr}")
+
+        # After the last child finishes, parent should auto-transition to Executing
+        r = self._run("status", "TASK-PARENT-AUTO")
+        self.assertIn("Executing", r.stdout, f"parent should auto-transition to Executing after all children Done, got: {r.stdout}")
+
     def test_claim_execute_holder_consistency(self):
         """claim --execute creates a specific holder; execute TASK should reuse it without conflict."""
         self._run("init", "TASK-LEASE-001")

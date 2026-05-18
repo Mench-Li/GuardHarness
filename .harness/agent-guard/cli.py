@@ -531,7 +531,10 @@ def _sync_progress_to_parent(task_id: str, snapshot) -> None:
 
 
 def _sync_child_completion_to_parent(task_id: str) -> None:
-    """When a child reaches Done, mark its parent step completed."""
+    """When a child reaches Done, mark its parent step completed.
+
+    If all siblings are also Done, auto-transition parent from Plan Ready to Executing.
+    """
     sm = StateMachine()
     try:
         task = sm.get_task(task_id)
@@ -559,7 +562,43 @@ def _sync_child_completion_to_parent(task_id: str) -> None:
                     pp.completed.append(s)
                 snap_mgr._write_snapshot(parent_snap)
                 print(f"Child {task_id} done -> parent {parent_id} step {s.step} marked completed")
-                return
+                break
+        else:
+            continue
+        break
+
+    # Check if all children are Done; if so, auto-transition parent to Executing
+    children = sm.get_children(parent_id)
+    if not children:
+        return
+
+    all_done = True
+    for child_id in children:
+        try:
+            child_task = sm.get_task(child_id)
+            if child_task.current_state != State.DONE:
+                all_done = False
+                break
+        except StateMachineError:
+            all_done = False
+            break
+
+    if all_done:
+        try:
+            parent_task = sm.get_task(parent_id)
+            if parent_task.current_state == State.PLAN_READY:
+                sm.transition(
+                    parent_id,
+                    State.EXECUTING,
+                    skip_gates=True,
+                    reason="All child tasks completed",
+                )
+                parent_snap.current_state = State.EXECUTING.value
+                snap_mgr._write_snapshot(parent_snap)
+                print(f"\n[Auto-transition] Parent {parent_id} -> Executing (all {len(children)} children Done)")
+                print(f"  Next: run 'python .harness/agent-guard/cli.py patch {parent_id}'")
+        except StateMachineError as e:
+            print(f"[Auto-transition warning] Could not transition parent {parent_id}: {e}", file=sys.stderr)
 
 
 def cmd_init(args) -> int:

@@ -280,6 +280,18 @@ class StateMachine:
                 tasks.append(task)
         return sorted(tasks, key=lambda t: t.updated_at, reverse=True)
 
+    def get_children(self, parent_id: str) -> list[str]:
+        """Return child task IDs for a given parent from registry."""
+        path = self._registry_file()
+        if not path.exists():
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+        parent_entry = registry.get(parent_id, {})
+        if isinstance(parent_entry, str):
+            parent_entry = {"state": parent_entry}
+        return parent_entry.get("children", [])
+
     def is_recoverable(self, task_id: str) -> bool:
         """Check if a task can be resumed after interruption."""
         try:
