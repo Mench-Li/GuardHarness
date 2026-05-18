@@ -384,9 +384,57 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
         }
 
     passed = result.returncode == 0
+    if not passed:
+        return {
+            "passed": False,
+            "message": f"Verification failed (exit {result.returncode})",
+            "details": {
+                "command": verification_command,
+                "exit_code": result.returncode,
+                "stdout": result.stdout[:2000],
+                "stderr": result.stderr[:2000],
+            },
+            "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+        }
+
+    # Proof of work checks from finishing-policy.yaml
+    policy_path = Path(".harness/superpowers/finishing-policy.yaml")
+    if policy_path.exists():
+        try:
+            import yaml
+            policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+            pow_checks = policy.get("proof_of_work", [])
+            for check in pow_checks:
+                check_cmd = check.get("command", "")
+                check_name = check.get("name", "unnamed")
+                if not check_cmd:
+                    continue
+                check_result = subprocess.run(
+                    check_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=cwd if cwd and cwd != "." else None,
+                )
+                if check_result.returncode != 0:
+                    return {
+                        "passed": False,
+                        "message": f"Proof of work '{check_name}' failed (exit {check_result.returncode})",
+                        "details": {
+                            "command": check_cmd,
+                            "exit_code": check_result.returncode,
+                            "stdout": check_result.stdout[:2000],
+                            "stderr": check_result.stderr[:2000],
+                        },
+                        "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+                    }
+        except Exception:
+            pass  # Degrade gracefully if policy file is unreadable
+
     return {
-        "passed": passed,
-        "message": "Verification passed" if passed else f"Verification failed (exit {result.returncode})",
+        "passed": True,
+        "message": "Verification passed",
         "details": {
             "command": verification_command,
             "exit_code": result.returncode,

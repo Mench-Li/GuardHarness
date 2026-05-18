@@ -367,6 +367,21 @@ class TestGates(unittest.TestCase):
         result = g5_verification_proof("T-001")
         self.assertTrue(result["passed"])
 
+    def test_g5_proof_of_work_failure(self):
+        """G5 must block when proof_of_work check in finishing-policy fails."""
+        plan = "# Plan\n\n## verification_command\necho ok\n"
+        Path("docs/superpowers/plans/TASK-TEST-plan.md").write_text(plan, encoding="utf-8")
+        os.makedirs(".harness/superpowers", exist_ok=True)
+        policy = """
+proof_of_work:
+  - name: lint
+    command: exit 1
+"""
+        Path(".harness/superpowers/finishing-policy.yaml").write_text(policy, encoding="utf-8")
+        result = g5_verification_proof("TASK-TEST")
+        self.assertFalse(result["passed"])
+        self.assertTrue("lint" in result["message"] or "proof_of_work" in result["message"], f"Expected lint or proof_of_work in message, got: {result['message']}")
+
     @patch("gates.subprocess.run")
     def test_g4_git_command_failure_blocks(self, mock_run):
         """G4 must fail when git commands return non-zero, not silently pass."""
