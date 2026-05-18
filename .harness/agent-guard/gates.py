@@ -339,16 +339,21 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
         for c in candidates:
             if Path(c).exists():
                 content = Path(c).read_text(encoding="utf-8")
-                # Match fenced code block after verification section
-                match = re.search(r"[Vv]erification[^\n]*[\n\r]+```[^\n]*\n([^`]+)```", content)
+                # Prefer explicit header-style verification_command (last occurrence wins)
+                matches = list(re.finditer(r"##\s*verification_command\s*\n+(.+?)(?:\n\n|\n##|$)", content, re.DOTALL))
+                match = matches[-1] if matches else None
                 if not match:
-                    # Match inline command after Run:
+                    # Fallback: fenced code block after verification section
+                    match = re.search(r"[Vv]erification[^\n]*[\n\r]+```[^\n]*\n([^`]+)```", content)
+                if not match:
+                    # Fallback: inline command after Run:
                     match = re.search(r"[Rr]un:\s*`?([^`\n]+)`?", content)
-                if not match:
-                    # Match header-style verification_command
-                    match = re.search(r"##\s*verification_command\s*\n+(.+?)(?:\n\n|\n##|$)", content, re.DOTALL)
                 if match:
                     verification_command = match.group(1).strip()
+                    # Strip fenced code block markers if present
+                    verification_command = re.sub(r"^```\w*\s*", "", verification_command)
+                    verification_command = re.sub(r"\s*```$", "", verification_command)
+                    verification_command = verification_command.strip()
                 break
 
     if not verification_command:

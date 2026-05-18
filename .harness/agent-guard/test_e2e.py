@@ -505,6 +505,47 @@ class TestAgentGuardE2E(unittest.TestCase):
         new = lm.get_lease("TASK-EXP-001")
         self.assertNotEqual(new["holder"], "agent-old", "expired lease should be replaced with new holder")
 
+    def test_auto_split_only_creates_task_level_subtasks(self):
+        """Auto-split should only create subtasks for Task-level sections, not Step-level."""
+        self._run("init", "TASK-SPLIT-001")
+        files = "\n".join([f"- src/file{i}.py" for i in range(21)])
+        plan = (
+            "# Plan\n\n"
+            "## task_description\nAdd feature.\n\n"
+            "## file_changes\n"
+            f"{files}\n\n"
+            "## test_plan\nRun pytest\n\n"
+            "## verification_command\necho ok\n\n"
+            "## success_criteria\nWorks.\n\n"
+            "## state_diagram\nInbox -> Done\n\n"
+            "## gate_checkpoints\nG1\n\n"
+            "### Task 1: Alpha\n"
+            "Step 1.\n\n"
+            "### Task 2: Beta\n"
+            "Step 2.\n\n"
+            "- [ ] **Step 1: Setup**\n"
+            "Do setup.\n\n"
+            "- [ ] **Step 2: Implement**\n"
+            "Do implement.\n"
+        )
+        Path("docs/superpowers/plans/TASK-SPLIT-001-plan.md").write_text(plan, encoding="utf-8")
+
+        r = self._run("plan", "TASK-SPLIT-001", "--approve", "--auto-split")
+        self.assertEqual(r.returncode, 0, f"plan failed: {r.stderr}")
+        self.assertIn("G1 PASSED", r.stdout)
+
+        # List tasks to verify only Task-level subtasks were created
+        r = self._run("list")
+        self.assertEqual(r.returncode, 0, f"list failed: {r.stderr}")
+
+        # Should contain Task 1 and Task 2 subtasks
+        self.assertIn("TASK-SPLIT-001-Task-Alpha", r.stdout, "Task 1 subtask should exist")
+        self.assertIn("TASK-SPLIT-001-Task-Beta", r.stdout, "Task 2 subtask should exist")
+
+        # Should NOT contain Step-level subtasks
+        self.assertNotIn("TASK-SPLIT-001-Setup", r.stdout, "Step-level subtask should NOT exist")
+        self.assertNotIn("TASK-SPLIT-001-Implement", r.stdout, "Step-level subtask should NOT exist")
+
 
 if __name__ == "__main__":
     unittest.main()

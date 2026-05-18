@@ -116,7 +116,7 @@ def _extract_sections(content: str) -> list[tuple[str, int, int]]:
     import re
 
     lines = content.splitlines(keepends=True)
-    section_pattern = re.compile(r"^(?:##\s+(.+)|- \[(?:x| |\-)\]\s+\*\*(.+?)\*\*|\d+\.\s+(.+))$")
+    section_pattern = re.compile(r"^(?:#{2,3}\s+(.+)|- \[(?:x| |\-)\]\s+\*\*(.+?)\*\*|\d+\.\s+(.+))$")
 
     sections: list[tuple[str, int, int]] = []
     for i, line in enumerate(lines):
@@ -316,8 +316,13 @@ def _split_plan_into_subtasks(task_id: str, plan_path: str) -> list[tuple[str, s
             "state_diagram", "gate_checkpoints",
         }
 
+        import re as _re
+        task_level_pattern = _re.compile(r"^Task\s+\d+:")
+
         for title, start, end in sections:
             if title.lower().replace(" ", "_") in STANDARD_PLAN_SECTIONS:
+                continue
+            if not task_level_pattern.match(title):
                 continue
             section_lines = lines[start:end]
             sub_id = _slug_from_title(title, task_id)
@@ -341,8 +346,10 @@ def _split_plan_into_subtasks(task_id: str, plan_path: str) -> list[tuple[str, s
 
             results.append((sub_id, str(sub_path)))
 
-        _update_parent_snapshot_with_subtasks(task_id, results, plan_path)
-        return results
+        if results:
+            _update_parent_snapshot_with_subtasks(task_id, results, plan_path)
+            return results
+        # 如果没有 Task-level sections，继续执行中点拆分回退
 
     # 回退：中点拆分（旧行为）
     step_pattern = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)")
