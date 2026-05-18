@@ -310,7 +310,15 @@ def _split_plan_into_subtasks(task_id: str, plan_path: str) -> list[tuple[str, s
         plan_dir = Path(plan_path).parent
         results: list[tuple[str, str]] = []
 
+        STANDARD_PLAN_SECTIONS = {
+            "task_description", "file_changes", "test_plan",
+            "verification_command", "success_criteria",
+            "state_diagram", "gate_checkpoints",
+        }
+
         for title, start, end in sections:
+            if title.lower().replace(" ", "_") in STANDARD_PLAN_SECTIONS:
+                continue
             section_lines = lines[start:end]
             sub_id = _slug_from_title(title, task_id)
             sub_path = plan_dir / f"{sub_id}-plan.md"
@@ -620,7 +628,8 @@ def cmd_plan(args) -> int:
                 print("未找到 plan 文件，无法自动拆分。")
                 return 0
         else:
-            return 0
+            # User chose not to split; continue with approval (G2 is warning-only in Phase 1)
+            pass
     else:
         print(f"G2 PASSED: {g2['message']}")
 

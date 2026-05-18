@@ -41,7 +41,11 @@ class TestAgentGuardE2E(unittest.TestCase):
             "## verification_command\n"
             "echo 'All tests pass'\n\n"
             "## success_criteria\n"
-            "Function returns expected greeting.\n"
+            "Function returns expected greeting.\n\n"
+            "## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n"
+            "## gate_checkpoints\n"
+            "G1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-E2E-001-plan.md").write_text(plan, encoding="utf-8")
         Path("docs/superpowers/plans/TASK-SNAP-001-plan.md").write_text(plan, encoding="utf-8")
@@ -229,6 +233,10 @@ class TestAgentGuardE2E(unittest.TestCase):
             "echo ok\n\n"
             "## success_criteria\n"
             "Works.\n\n"
+            "## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n"
+            "## gate_checkpoints\n"
+            "G1: Plan Valid\n\n"
             "## Alpha-Feature\n"
             "Step 1.\n\n"
             "## Beta-Feature\n"
@@ -275,7 +283,11 @@ class TestAgentGuardE2E(unittest.TestCase):
             "## file_changes\n- a.py\n\n"
             "## test_plan\npytest\n\n"
             "## verification_command\necho ok\n\n"
-            "## success_criteria\nY.\n"
+            "## success_criteria\nY.\n\n"
+            "## state_diagram\n"
+            "Inbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n"
+            "## gate_checkpoints\n"
+            "G1: Plan Valid\n"
         )
         Path(f"docs/superpowers/plans/{child_id}-plan.md").write_text(child_plan, encoding="utf-8")
         self._run("plan", child_id, "--approve")
@@ -305,7 +317,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-LEASE-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-LEASE-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-LEASE-001", "--approve")
@@ -324,7 +336,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-AUTO-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-AUTO-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-AUTO-001", "--approve")
@@ -339,7 +351,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-CLAIM-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-CLAIM-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-CLAIM-001", "--approve")
@@ -374,7 +386,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-G4-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- src/allowed.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-G4-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-G4-001", "--approve")
@@ -394,7 +406,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-SBOX-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-SBOX-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-SBOX-001", "--approve")
@@ -418,7 +430,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-SBOX-Snap-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-SBOX-Snap-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-SBOX-Snap-001", "--approve")
@@ -433,7 +445,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-ORD-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-ORD-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-ORD-001", "--approve")
@@ -453,7 +465,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-HOLDER-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-HOLDER-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-HOLDER-001", "--approve")
@@ -472,7 +484,7 @@ class TestAgentGuardE2E(unittest.TestCase):
         self._run("init", "TASK-EXP-001")
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n- a.py\n\n"
-            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n"
+            "## test_plan\npytest\n\n## verification_command\necho ok\n\n## success_criteria\nY.\n\n## state_diagram\nInbox -> Plan Ready -> Executing -> Patch Ready -> Entropy Review -> Done\n\n## gate_checkpoints\nG1: Plan Valid\n"
         )
         Path("docs/superpowers/plans/TASK-EXP-001-plan.md").write_text(plan, encoding="utf-8")
         self._run("plan", "TASK-EXP-001", "--approve")
