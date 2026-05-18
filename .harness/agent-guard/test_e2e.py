@@ -375,11 +375,17 @@ class TestAgentGuardE2E(unittest.TestCase):
         subprocess.run(["git", "add", "docs/superpowers/plans/"], capture_output=True)
         subprocess.run(["git", "commit", "-m", "baseline child plans"], capture_output=True)
 
-        for child_id in child_ids:
+        for i, child_id in enumerate(child_ids):
             r = self._run("plan", child_id, "--approve")
             self.assertEqual(r.returncode, 0, f"plan {child_id} failed: {r.stderr}")
             r = self._run("execute", child_id, "--no-sandbox")
             self.assertEqual(r.returncode, 0, f"execute {child_id} failed: {r.stderr}")
+
+            # After first child starts executing, parent should auto-transition to Executing
+            if i == 0:
+                r = self._run("status", "TASK-PARENT-AUTO")
+                self.assertIn("Executing", r.stdout, f"parent should auto-transition to Executing when first child starts, got: {r.stdout}")
+
             r = self._run("progress", child_id, "--step", "1", "--status", "done")
             self.assertEqual(r.returncode, 0, f"progress {child_id} failed: {r.stderr}")
             r = self._run("patch", child_id)
@@ -389,9 +395,9 @@ class TestAgentGuardE2E(unittest.TestCase):
             r = self._run("finish", child_id)
             self.assertEqual(r.returncode, 0, f"finish {child_id} failed: {r.stderr}")
 
-        # After the last child finishes, parent should auto-transition to Executing
+        # After the last child finishes, parent should auto-transition to Done
         r = self._run("status", "TASK-PARENT-AUTO")
-        self.assertIn("Executing", r.stdout, f"parent should auto-transition to Executing after all children Done, got: {r.stdout}")
+        self.assertIn("Done", r.stdout, f"parent should auto-transition to Done after all children Done, got: {r.stdout}")
 
     def test_claim_execute_holder_consistency(self):
         """claim --execute creates a specific holder; execute TASK should reuse it without conflict."""

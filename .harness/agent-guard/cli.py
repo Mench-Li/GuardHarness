@@ -586,17 +586,14 @@ def _sync_child_completion_to_parent(task_id: str) -> None:
     if all_done:
         try:
             parent_task = sm.get_task(parent_id)
-            if parent_task.current_state == State.PLAN_READY:
-                sm.transition(
-                    parent_id,
-                    State.EXECUTING,
-                    skip_gates=True,
-                    reason="All child tasks completed",
-                )
-                parent_snap.current_state = State.EXECUTING.value
+            if parent_task.current_state == State.EXECUTING:
+                # Fast-track parent through remaining states (children already did patch/review)
+                sm.transition(parent_id, State.PATCH_READY, skip_gates=True, reason="All children done")
+                sm.transition(parent_id, State.ENTROPY_REVIEW, skip_gates=True, reason="All children done")
+                sm.transition(parent_id, State.DONE, skip_gates=True, reason="All children done")
+                parent_snap.current_state = State.DONE.value
                 snap_mgr._write_snapshot(parent_snap)
-                print(f"\n[Auto-transition] Parent {parent_id} -> Executing (all {len(children)} children Done)")
-                print(f"  Next: run 'python .harness/agent-guard/cli.py patch {parent_id}'")
+                print(f"\n[Auto-transition] Parent {parent_id} -> Done (all {len(children)} children Done)")
         except StateMachineError as e:
             print(f"[Auto-transition warning] Could not transition parent {parent_id}: {e}", file=sys.stderr)
 
@@ -797,8 +794,49 @@ def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
                 return 1
         print(f"Task {task_id} -> Executing")
 
+        # If this is a child task, auto-transition parent from Plan Ready to Executing
+        _maybe_transition_parent_to_executing(task_id)
+
     _auto_mark_first_step_in_progress(task_id)
     return 0
+
+
+def _maybe_transition_parent_to_executing(task_id: str) -> None:
+    """When a child task starts executing, ensure its parent is also in Executing."""
+    sm = StateMachine()
+    try:
+        task = sm.get_task(task_id)
+    except StateMachineError:
+        return
+    parent_id = task.metadata.get("parent")
+    if not parent_id:
+        return
+
+    try:
+        parent_task = sm.get_task(parent_id)
+    except StateMachineError:
+        return
+
+    if parent_task.current_state != State.PLAN_READY:
+        return
+
+    try:
+        sm.transition(
+            parent_id,
+            State.EXECUTING,
+            skip_gates=True,
+            reason="Child task started execution",
+        )
+        snap_mgr = SnapshotManager()
+        try:
+            parent_snap = snap_mgr.load_snapshot(parent_id)
+            parent_snap.current_state = State.EXECUTING.value
+            snap_mgr._write_snapshot(parent_snap)
+        except StateMachineError:
+            pass
+        print(f"\n[Auto-transition] Parent {parent_id} -> Executing (child {task_id} started)")
+    except StateMachineError as e:
+        print(f"[Auto-transition warning] Could not transition parent {parent_id}: {e}", file=sys.stderr)
 
 
 def cmd_execute(args) -> int:
