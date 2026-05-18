@@ -2,8 +2,8 @@
 
 > **AI 原生开发工作流模板** —— 基于 Superpowers × Harness Engineering，让 Claude Code 越用越聪明。
 >
-> 版本: 2.6 | 日期: 2026-05-14
-> 新增: Sandbox 自动隔离工作区 + TDD 硬宪法规则 + G2 语义感知拆分 + 多 Agent 并行认领 + 子任务进度追踪 + 记忆系统全自动沉淀 + 技能自动驱动完整状态生命周期（execute → patch → review → finish）
+> 版本: 2.7 | 日期: 2026-05-18
+> 新增: 跨平台原子 Lease + G4 硬阻断增强（staged/unstaged/untracked 全检测 + file_changes 严格匹配）+ Snapshot 上下文保留（中断恢复不丢进度）+ Sandbox 自动清理（失败时释放 Lease）
 
 ---
 
@@ -184,7 +184,7 @@ Agent-Guard 是本项目的**状态驱动控制平面**，将原本基于 prompt
 | **硬 Gate** | 5 个否决权式状态转换检查，未通过则**物理阻断**进度 |
 | **旁路状态** | `Blocked`（外部依赖）、`Needs Simplification`（熵审查失败回流）|
 | **中断恢复** | 任务中断后通过 Snapshot 机制恢复，只加载必要上下文（目标 `< 30 秒`）|
-| **Lease 互斥** | 非终端状态自动持有 Lease，防止多 Agent 竞争同一任务 |
+| **Lease 互斥** | 非终端状态自动持有 Lease；**v2.7 新增跨平台文件锁**（Windows `msvcrt.locking` / Unix `fcntl.flock`）+ 原子写入，彻底杜绝竞争条件 |
 
 **状态机（8 状态）：**
 
@@ -204,7 +204,7 @@ Agent-Guard 是本项目的**状态驱动控制平面**，将原本基于 prompt
 | G1 Plan Valid | Inbox → Plan Ready | Plan 无占位符、无模糊词、包含必要章节 | **硬阻断** |
 | G2 Complexity Budget | Inbox → Plan Ready | 预估文件/步骤数不超预算 | 警告（Phase 1）|
 | G3 Entropy Check | Plan Ready → Executing / Needs Simplification → Executing | 运行 `detect-entropy.sh`，无新增复杂度反模式 | **硬阻断** |
-| G4 Surgical Check | Executing → Patch Ready | Diff 只修改相关文件，无 drive-by refactoring（沙盒环境下在 worktree 内检查）| **硬阻断** |
+| G4 Surgical Check | Executing → Patch Ready | 检测 staged + unstaged + untracked；过滤运行时产物；只在 plan 的 `file_changes` 节匹配允许文件；沙盒环境下在 worktree 内检查 | **硬阻断** |
 | G5 Verification Proof | Entropy Review → Done | 测试通过 + lint 通过 + 覆盖率达标 | **硬阻断** |
 
 **Agent-Guard 命令：**
@@ -849,7 +849,11 @@ python .harness/agent-guard/cli.py review TASK-001    # Patch Ready → Entropy 
 **Gate（转换前自动执行）：**
 - **G3 Entropy Check** —— 运行 `detect-entropy.sh`，检测新增复杂度反模式（manager-proliferation、config-nesting、abstraction-explosion）
   - **如果失败**：任务进入 `Needs Simplification`，需简化后重新 `execute`
-- **G4 Surgical Check**（硬阻断）—— 验证 git diff 只修改计划内文件，无 drive-by refactoring
+- **G4 Surgical Check**（硬阻断）—— 验证 git diff 只修改计划内文件，无 drive-by refactoring：
+  - 检测 staged + unstaged + untracked 三类变更
+  - 自动过滤 Agent-Guard 运行时产物（state/snapshots/leases）
+  - 只在 plan 的 `file_changes` 章节匹配允许文件（不在其他章节误匹配）
+  - **v2.7 起**：从"建议"升级为**硬阻断**，任何越界修改都物理阻断进入 Patch Ready
 
 **加载技能：**
 1. `executing-plans`（手动执行）或 `subagent-driven-development`（子代理自动执行）
@@ -869,9 +873,14 @@ python .harness/agent-guard/cli.py review TASK-001    # Patch Ready → Entropy 
 
 **自动行为：**
 - 获取 Lease（防止多 Agent 同时操作同一任务）
+  - **v2.7 新增**：跨平台文件锁（Windows `msvcrt.locking` / Unix `fcntl.flock`）+ 原子写入，彻底杜绝多进程竞争
+  - Lease 过期后自动释放，其他 Agent 可重新获取
 - **自动创建 Sandbox**（`execute` 默认在 `.worktrees/` 创建隔离工作区，`--no-sandbox` 可跳过）
+  - **v2.7 新增**：Sandbox 创建失败时自动释放 Lease，避免死锁
+  - **v2.7 新增**：状态转换失败时自动清理已创建的 Sandbox
 - 每 5 分钟发送 Heartbeat（Lease 续约）
 - 状态转换后自动生成 Snapshot（用于中断恢复，含沙盒路径）
+  - **v2.7 新增**：Snapshot 保留现有上下文（lease、sub_tasks、sandbox、required_context、recovery_prompt），中断恢复不丢失进度
 
 **执行方式：**
 
@@ -1275,6 +1284,8 @@ git submodule update --remote .harness/team
 | Generator | claude-sonnet-4-6 | claude-haiku-4-5-20251001 |
 | Evaluator | claude-opus-4-7 | gpt-4o |
 
+> 实际模型选择以 `.harness/workflows/model-routing.yaml` 为准，上表仅为示例。
+
 ---
 
 ## 故障排除
@@ -1364,8 +1375,29 @@ pip install pyyaml
 
 **解决：**
 1. 等待 Lease 过期（默认 10 分钟）
-2. 或手动强制释放：`rm .harness/agent-guard/leases/TASK-001-lease.json`
+2. 或手动强制释放：`rm .harness/agent-guard/leases/TASK-001-lease.json`（Bash）/ `del .harness\agent-guard\leases\TASK-001-lease.json`（CMD）
 3. 重新运行 `agent-guard resume TASK-001`
+
+### 问题：G4 Surgical Check 误报 untracked 文件
+
+**症状：** `patch` 时 G4 报错包含未在 plan 中列出的 untracked 文件
+
+**原因：** G4 现在检测 staged + unstaged + untracked 三类变更。如果你在执行过程中生成了临时文件或日志，会被检测到。
+
+**解决：**
+1. 确认这些文件是否确实需要提交——如果是，更新 plan 的 `file_changes` 章节
+2. 如果不需要提交，添加到 `.gitignore`
+3. 临时文件可删除后再运行 `patch`
+
+### 问题：Sandbox 创建失败导致 Lease 未释放
+
+**症状：** `execute` 时 Sandbox 创建失败，后续无法重新执行同一任务
+
+**原因（v2.7 之前）：** 早期版本在 sandbox 创建失败时未释放 Lease，导致任务被锁定。
+
+**解决（v2.7+ 已修复）：**
+- v2.7 起已自动处理：sandbox 创建失败时自动释放 Lease
+- 如仍遇到，手动释放：`python .harness/agent-guard/cli.py block TASK-001 --reason "sandbox failed"` 然后 `unblock`
 
 ### 问题：任务中断后 context 加载不完整
 
@@ -1456,7 +1488,7 @@ python .claude/scripts/check-doc-sync.py
 | 场景 | 命令 | 状态变化 | Gate |
 |:---|:---|:---|:---|
 | 开始新功能 | `init TASK-xxx --spec <path>` | → Inbox | 无 |
-| Plan 已写好，准备执行 | `plan TASK-xxx --approve` | Inbox → Plan Ready | G1 + G2 |
+| Plan 已写好，准备执行 | `plan TASK-xxx --approve [--auto-split]` | Inbox → Plan Ready | G1 + G2 |
 | 开始写代码 | `execute TASK-xxx` | Plan Ready → Executing | G3 |
 | 代码写完了 | `patch TASK-xxx` | Executing → Patch Ready | G4 |
 | 进入熵审查 | `review TASK-xxx` | Patch Ready → Entropy Review | 无 |
@@ -1487,7 +1519,7 @@ python .claude/scripts/check-doc-sync.py
 ```bash
 # 主线生命周期
 python .harness/agent-guard/cli.py init     <task-id> [--spec <path>]
-python .harness/agent-guard/cli.py plan     <task-id> [--approve]
+python .harness/agent-guard/cli.py plan     <task-id> [--approve] [--auto-split]
 python .harness/agent-guard/cli.py execute  [<task-id>] [--no-sandbox]  # 省略 task-id 则自动认领
 python .harness/agent-guard/cli.py claim    [--execute]                 # 单独认领任务
 python .harness/agent-guard/cli.py patch    <task-id>

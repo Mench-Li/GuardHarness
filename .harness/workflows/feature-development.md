@@ -25,9 +25,9 @@ trigger:
 
 | 角色 | 模型 | 职责 |
 |:---|:---|:---|
-| Planner | claude-opus-4-7 | 需求分析、规格扩展、验收标准定义 |
-| Generator | claude-sonnet-4-6 | 代码实现、测试编写 |
-| Evaluator | claude-opus-4-7 | 质量评估、测试验证、反馈循环 |
+| Planner | {{ model_routing.planner.primary }} (当前: kimi-k2.6) | 需求分析、规格扩展、验收标准定义 |
+| Generator | {{ model_routing.generator.primary }} (当前: kimi-k2.6) | 代码实现、测试编写 |
+| Evaluator | {{ model_routing.evaluator.primary }} (当前: kimi-k2.6) | 质量评估、测试验证、反馈循环 |
 
 ## Steps
 1. [Planner] 分析需求 → 生成 spec
