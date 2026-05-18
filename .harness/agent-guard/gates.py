@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -475,8 +476,8 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
                         },
                         "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
                     }
-        except Exception:
-            pass  # Degrade gracefully if policy file is unreadable
+        except Exception as e:
+            print(f"[WARN] finishing-policy.yaml unreadable ({e}); degrading to default policy.", file=sys.stderr)
 
     return {
         "passed": True,

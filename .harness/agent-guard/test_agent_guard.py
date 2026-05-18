@@ -986,6 +986,50 @@ class TestGetSandboxCwdFailClosed(unittest.TestCase):
         self.assertEqual(cwd, ".")
 
 
+class TestG5PolicyWarning(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        Path(".harness/agent-guard/state").mkdir(parents=True)
+        Path(".harness/superpowers").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g5_warns_on_corrupt_policy(self, mock_cwd):
+        """g5 should warn when finishing-policy.yaml is unreadable."""
+        from gates import g5_verification_proof
+        from state_machine import StateMachine, State
+        import io, sys
+
+        sm = StateMachine()
+        sm.init_task("T-G5-POLICY")
+        sm.transition("T-G5-POLICY", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-G5-POLICY", State.EXECUTING, skip_gates=True)
+        sm.transition("T-G5-POLICY", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-G5-POLICY", State.ENTROPY_REVIEW, skip_gates=True)
+
+        plan_path = Path("docs/superpowers/plans/T-G5-POLICY-plan.md")
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text("# Plan\n## verification_command\necho ok\n")
+
+        policy_path = Path(".harness/superpowers/finishing-policy.yaml")
+        policy_path.write_text("this is not: valid yaml: [", encoding="utf-8")
+
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            result = g5_verification_proof("T-G5-POLICY")
+            self.assertTrue(result["passed"])
+            stderr_output = sys.stderr.getvalue()
+            self.assertIn("finishing-policy", stderr_output)
+        finally:
+            sys.stderr = old_stderr
+
+
 class TestListIncludeArchived(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
