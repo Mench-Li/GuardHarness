@@ -74,6 +74,22 @@ def g1_plan_valid(task_id: str, plan_path: str | None = None, **kwargs: Any) -> 
     if vague_matches:
         errors.append(f"Found vague words: {set(vague_matches)}")
 
+    # TDD sequence check (heuristic)
+    has_code_files = bool(re.search(r"`[^`]+\.(py|js|ts|go|rs|java|md|sh)`", content))
+    if has_code_files:
+        tdd_stages = [
+            r"(?:写|write).{0,10}(?:测试|test)",
+            r"(?:运行|run|确认).{0,10}(?:失败|fail)",
+            r"(?:写|write|最小).{0,10}(?:实现|implement)",
+            r"(?:运行|run|确认).{0,10}(?:通过|pass)",
+        ]
+        missing_stages = []
+        for i, pattern in enumerate(tdd_stages, 1):
+            if not re.search(pattern, content, re.IGNORECASE):
+                missing_stages.append(f"stage_{i}")
+        if missing_stages:
+            errors.append(f"TDD sequence incomplete: missing {missing_stages}")
+
     passed = len(errors) == 0
     return {
         "passed": passed,

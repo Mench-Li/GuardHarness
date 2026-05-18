@@ -477,6 +477,31 @@ Inbox -> Done
         self.assertFalse(result["passed"])
         self.assertIn("gate_checkpoints", str(result["details"]["errors"]))
 
+    def test_g1_missing_tdd_sequence(self):
+        plan = """
+## task_description
+Add feature
+## file_changes
+- `src/foo.py`
+## test_plan
+Write tests
+## verification_command
+```bash
+pytest
+```
+## success_criteria
+Tests pass
+## state_diagram
+Inbox -> Done
+## gate_checkpoints
+G1
+"""
+        Path("docs/superpowers/plans/TASK-TEST3-plan.md").write_text(plan, encoding="utf-8")
+        result = g1_plan_valid("TASK-TEST3")
+        self.assertFalse(result["passed"])
+        errors_str = str(result["details"]["errors"]).lower()
+        self.assertTrue("tdd" in errors_str or "test-first" in errors_str or "sequence" in errors_str, f"Expected TDD error in {result['details']['errors']}")
+
 
 class TestSandboxCLI(unittest.TestCase):
     def setUp(self):
