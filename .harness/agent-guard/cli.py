@@ -293,7 +293,7 @@ def _split_plan_into_subtasks(task_id: str, plan_path: str) -> list[tuple[str, s
     2. 语义去重：拆分前扫描 plans/ 目录，检测是否已有语义相似的 plan
     3. 如果 section 数量 >= 2，按 section 拆分，每个 section 一个子 plan
     4. 提取 section 标题关键词作为子任务名（不再强制 sub1/sub2）
-    5. 如果 section 数量 < 2，回退到中点拆分
+    5. 如果 section 数量 < 2，返回空列表（不再回退到中点拆分）
     """
     import re
 
