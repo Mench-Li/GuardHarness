@@ -205,8 +205,20 @@ def g3_entropy_check(task_id: str, **kwargs: Any) -> dict[str, Any]:
 
 
 def _get_sandbox_cwd(task_id: str) -> str:
-    """获取任务对应的 sandbox 工作目录，优先使用 snapshot 中记录的路径。"""
+    """获取任务对应的 sandbox 工作目录，优先使用 snapshot 中记录的路径。
+
+    对非 Done 任务，若 snapshot 缺失或路径无效，抛出 RuntimeError 而非静默回退到 "."。
+    """
     from snapshot import SnapshotManager
+    from state_machine import StateMachine, State
+
+    # Check task state first
+    sm = StateMachine()
+    try:
+        task = sm.get_task(task_id)
+        is_done = task.current_state == State.DONE
+    except Exception:
+        is_done = False
 
     snap_mgr = SnapshotManager()
     try:
@@ -231,7 +243,14 @@ def _get_sandbox_cwd(task_id: str) -> str:
     sandbox = mgr.get_sandbox(task_id)
     if sandbox:
         return str(mgr._worktree_path(task_id))
-    return "."
+
+    if is_done:
+        return "."
+
+    raise RuntimeError(
+        f"Task {task_id} is not Done and has no valid sandbox snapshot or worktree. "
+        f"Cannot determine working directory."
+    )
 
 
 def g4_surgical_check(task_id: str, plan_path: str | None = None, **kwargs: Any) -> dict[str, Any]:

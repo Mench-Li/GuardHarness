@@ -368,13 +368,15 @@ class TestGates(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("No verification command", result["message"])
 
-    def test_g5_command_runs(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g5_command_runs(self, mock_cwd):
         plan = "# Plan\n\n## verification_command\necho hello\n"
         Path("docs/superpowers/plans/T-001-plan.md").write_text(plan, encoding="utf-8")
         result = g5_verification_proof("T-001")
         self.assertTrue(result["passed"])
 
-    def test_g5_proof_of_work_failure(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g5_proof_of_work_failure(self, mock_cwd):
         """G5 must block when proof_of_work check in finishing-policy fails."""
         plan = "# Plan\n\n## verification_command\necho ok\n"
         Path("docs/superpowers/plans/TASK-TEST-plan.md").write_text(plan, encoding="utf-8")
@@ -389,8 +391,9 @@ proof_of_work:
         self.assertFalse(result["passed"])
         self.assertTrue("lint" in result["message"] or "proof_of_work" in result["message"], f"Expected lint or proof_of_work in message, got: {result['message']}")
 
+    @patch("gates._get_sandbox_cwd", return_value=".")
     @patch("gates.subprocess.run")
-    def test_g4_git_command_failure_blocks(self, mock_run):
+    def test_g4_git_command_failure_blocks(self, mock_run, mock_cwd):
         """G4 must fail when git commands return non-zero, not silently pass."""
         mock_run.side_effect = lambda *a, **kw: MagicMock(
             returncode=1, stdout="", stderr="fatal: not a git repository"
@@ -399,7 +402,8 @@ proof_of_work:
         self.assertFalse(result["passed"])
         self.assertIn("Git diff failed", result["message"])
 
-    def test_g4_allows_common_frontend_extensions(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g4_allows_common_frontend_extensions(self, mock_cwd):
         """G4 should recognize common frontend/config extensions in file_changes."""
         plan = (
             "# Plan\n\n## task_description\nX\n\n## file_changes\n"
@@ -427,7 +431,8 @@ proof_of_work:
         result = g4_surgical_check("T-FRONT-001", plan_path="docs/superpowers/plans/T-FRONT-001-plan.md")
         self.assertTrue(result["passed"], f"G4 should allow frontend/config files: {result}")
 
-    def test_g4_blocks_other_task_plan_modifications(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g4_blocks_other_task_plan_modifications(self, mock_cwd):
         """G4 must detect modifications to OTHER tasks' plan files, not blanket-exempt all plans."""
         import subprocess
 
@@ -846,7 +851,8 @@ class TestFinishSnapshot(unittest.TestCase):
         os.chdir(self.orig_cwd)
         self.tmpdir.cleanup()
 
-    def test_finish_closes_snapshot_progress(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_finish_closes_snapshot_progress(self, mock_cwd):
         """After finish, snapshot must show all steps completed and state Done."""
         from cli import cmd_finish
         from snapshot import SnapshotManager, PlanProgress, PlanStep
@@ -884,7 +890,8 @@ class TestFinishSnapshot(unittest.TestCase):
         self.assertEqual(len(finished_snap.plan_progress.in_progress), 0)
         self.assertEqual(len(finished_snap.plan_progress.completed), 3)
 
-    def test_finish_clears_sandbox_paths(self):
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_finish_clears_sandbox_paths(self, mock_cwd):
         """After finish, snapshot sandbox worktree_path must be cleared and destroyed_at set."""
         from cli import cmd_finish
         from snapshot import SnapshotManager, SandboxInfo
@@ -917,6 +924,48 @@ class TestFinishSnapshot(unittest.TestCase):
         finished_snap = snap_mgr.load_snapshot("T-SBOX-CLEAR")
         self.assertEqual(finished_snap.sandbox.worktree_path, "")
         self.assertTrue(finished_snap.sandbox.destroyed_at)
+
+
+class TestGetSandboxCwdFailClosed(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        Path(".harness/agent-guard/state").mkdir(parents=True)
+        Path(".harness/agent-guard/snapshots").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_missing_snapshot_for_non_done_task_raises(self):
+        """Non-Done task with missing snapshot must raise, not fallback to '.'."""
+        from gates import _get_sandbox_cwd
+        from state_machine import StateMachine, State
+
+        sm = StateMachine()
+        sm.init_task("T-NO-SNAP")
+        sm.transition("T-NO-SNAP", State.PLAN_READY, skip_gates=True)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            _get_sandbox_cwd("T-NO-SNAP")
+        self.assertIn("snapshot", str(ctx.exception).lower())
+
+    def test_done_task_returns_dot(self):
+        """Done task may safely fallback to '.' when snapshot missing."""
+        from gates import _get_sandbox_cwd
+        from state_machine import StateMachine, State
+
+        sm = StateMachine()
+        sm.init_task("T-DONE-NO-SNAP")
+        sm.transition("T-DONE-NO-SNAP", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-DONE-NO-SNAP", State.EXECUTING, skip_gates=True)
+        sm.transition("T-DONE-NO-SNAP", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-DONE-NO-SNAP", State.ENTROPY_REVIEW, skip_gates=True)
+        sm.transition("T-DONE-NO-SNAP", State.DONE, skip_gates=True)
+
+        cwd = _get_sandbox_cwd("T-DONE-NO-SNAP")
+        self.assertEqual(cwd, ".")
 
 
 if __name__ == "__main__":
