@@ -979,6 +979,26 @@ def cmd_finish(args) -> int:
 
         # Archive any incomplete children
         _archive_orphan_children(args.task_id)
+
+        # Force-close snapshot progress
+        try:
+            from snapshot import SnapshotManager
+            snap_mgr = SnapshotManager()
+            snap = snap_mgr.load_snapshot(args.task_id)
+            if snap.plan_progress:
+                # Move all pending to completed
+                for step in snap.plan_progress.pending:
+                    step.completed_at = datetime.now(timezone(timedelta(hours=8))).isoformat()
+                snap.plan_progress.completed.extend(snap.plan_progress.pending)
+                snap.plan_progress.pending = []
+                # Move all in_progress to completed
+                for step in snap.plan_progress.in_progress:
+                    step.completed_at = datetime.now(timezone(timedelta(hours=8))).isoformat()
+                snap.plan_progress.completed.extend(snap.plan_progress.in_progress)
+                snap.plan_progress.in_progress = []
+                snap_mgr._write_snapshot(snap)
+        except Exception as e:
+            print(f"[WARN] Could not close snapshot progress: {e}", file=sys.stderr)
     except StateMachineError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

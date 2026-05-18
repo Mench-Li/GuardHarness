@@ -834,5 +834,56 @@ class TestArchiveLegacyTasks(unittest.TestCase):
         self.assertEqual(commit_task["current_state"], "Done")
 
 
+class TestFinishSnapshot(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        Path(".harness/agent-guard/state").mkdir(parents=True)
+        Path(".harness/agent-guard/snapshots").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_finish_closes_snapshot_progress(self):
+        """After finish, snapshot must show all steps completed and state Done."""
+        from cli import cmd_finish
+        from snapshot import SnapshotManager, PlanProgress, PlanStep
+        import argparse
+
+        sm = StateMachine()
+        sm.init_task("T-FINISH-TEST")
+        sm.transition("T-FINISH-TEST", State.PLAN_READY, skip_gates=True)
+        sm.transition("T-FINISH-TEST", State.EXECUTING, skip_gates=True)
+        sm.transition("T-FINISH-TEST", State.PATCH_READY, skip_gates=True)
+        sm.transition("T-FINISH-TEST", State.ENTROPY_REVIEW, skip_gates=True)
+
+        # Pre-seed snapshot with pending progress
+        snap_mgr = SnapshotManager()
+        snap = snap_mgr.create_snapshot("T-FINISH-TEST")
+        snap.plan_progress = PlanProgress(
+            total_steps=3,
+            pending=[PlanStep(step=1, description="s1"), PlanStep(step=2, description="s2")],
+            in_progress=[PlanStep(step=3, description="s3")],
+        )
+        snap_mgr._write_snapshot(snap)
+
+        # Create a minimal plan with verification_command
+        plan_path = Path("docs/superpowers/plans/T-FINISH-TEST-plan.md")
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text("# Plan\n## verification_command\necho ok\n")
+
+        args = argparse.Namespace(task_id="T-FINISH-TEST")
+        rc = cmd_finish(args)
+        self.assertEqual(rc, 0)
+
+        finished_snap = snap_mgr.load_snapshot("T-FINISH-TEST")
+        self.assertEqual(finished_snap.current_state, "Done")
+        self.assertEqual(len(finished_snap.plan_progress.pending), 0)
+        self.assertEqual(len(finished_snap.plan_progress.in_progress), 0)
+        self.assertEqual(len(finished_snap.plan_progress.completed), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
