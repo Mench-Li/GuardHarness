@@ -56,6 +56,8 @@ def g1_plan_valid(task_id: str, plan_path: str | None = None, **kwargs: Any) -> 
         "test_plan",
         "verification_command",
         "success_criteria",
+        "state_diagram",
+        "gate_checkpoints",
     ]
     for sec in required_sections:
         if sec not in lower and sec.replace("_", " ") not in lower:

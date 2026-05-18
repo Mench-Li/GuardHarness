@@ -322,7 +322,7 @@ class TestGates(unittest.TestCase):
         self.assertIn("not found", result["message"])
 
     def test_g1_valid_plan(self):
-        plan = "# Task\n\n## task_description\nGoal\n\n## file_changes\n- src/a.py\n\n## test_plan\nRun pytest\n\n## verification_command\npytest\n\n## success_criteria\nAll pass\n"
+        plan = "# Task\n\n## task_description\nGoal\n\n## file_changes\n- src/a.py\n\n## test_plan\nRun pytest\n\n## verification_command\npytest\n\n## success_criteria\nAll pass\n\n## state_diagram\nInbox -> Done\n\n## gate_checkpoints\nG1\n"
         Path("docs/superpowers/plans/T-001-plan.md").write_text(plan, encoding="utf-8")
         result = g1_plan_valid("T-001")
         self.assertTrue(result["passed"])
@@ -432,6 +432,50 @@ class TestGates(unittest.TestCase):
         result = g4_surgical_check("TASK-CURR-001", plan_path="docs/superpowers/plans/TASK-CURR-001-plan.md")
         self.assertFalse(result["passed"], f"G4 should block modifications to other task plans: {result}")
         self.assertIn("TASK-OTHER-001-plan.md", result["message"])
+
+    def test_g1_missing_state_diagram(self):
+        plan = """
+## task_description
+Foo
+## file_changes
+- `src/foo.py`
+## test_plan
+Run pytest
+## verification_command
+```bash
+pytest
+```
+## success_criteria
+Tests pass
+## gate_checkpoints
+G1
+"""
+        Path("docs/superpowers/plans/TASK-TEST-plan.md").write_text(plan, encoding="utf-8")
+        result = g1_plan_valid("TASK-TEST")
+        self.assertFalse(result["passed"])
+        self.assertIn("state_diagram", str(result["details"]["errors"]))
+
+    def test_g1_missing_gate_checkpoints(self):
+        plan = """
+## task_description
+Foo
+## file_changes
+- `src/foo.py`
+## test_plan
+Run pytest
+## verification_command
+```bash
+pytest
+```
+## success_criteria
+Tests pass
+## state_diagram
+Inbox -> Done
+"""
+        Path("docs/superpowers/plans/TASK-TEST2-plan.md").write_text(plan, encoding="utf-8")
+        result = g1_plan_valid("TASK-TEST2")
+        self.assertFalse(result["passed"])
+        self.assertIn("gate_checkpoints", str(result["details"]["errors"]))
 
 
 class TestSandboxCLI(unittest.TestCase):
