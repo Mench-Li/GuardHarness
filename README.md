@@ -339,7 +339,7 @@ L3 组织级: .harness/workflows/      —— 工作流定义和模型路由
 │  用户指令: /finish-branch                                                   │
 │  Agent-Guard: python .harness/agent-guard/cli.py finish TASK-001            │
 │                                                                             │
-│  Gate: G5 Verification Proof —— 测试通过 + lint 通过 + 覆盖率≥80%          │
+│  Gate: G5 Verification Proof —— 测试通过 + lint 通过 + 覆盖率≥60%          │
 │                                                                             │
 │  加载技能: finishing-a-development-branch + verification-before-completion  │
 │  加载约束: finishing-policy.yaml（auto_merge / create_pr / keep_branch）     │
@@ -357,7 +357,7 @@ L3 组织级: .harness/workflows/      —— 工作流定义和模型路由
 │    - 更新 CLAUDE.md 动态区块: recent-decisions, architecture                │
 │                                                                             │
 │  决策规则:                                                                  │
-│    - 测试通过 + 覆盖率≥80% + 无严重 lint 错误 + 分支未落后 → auto_merge     │
+│    - 测试通过 + 覆盖率≥60% + 无严重 lint 错误 + 分支未落后 → auto_merge     │
 │    - 测试通过 + 复杂度评分<high → create_pr                                 │
 │    - 测试失败 → keep_branch + 创建 observation（即使失败也要记录教训）      │
 │                                                                             │
@@ -944,7 +944,7 @@ python .harness/agent-guard/cli.py finish TASK-001   # Entropy Review → Done (
 ```
 
 **Gate（转换前自动执行）：**
-- **G5 Verification Proof** —— 运行 plan 中定义的 verification_command，确认测试通过、lint 通过、覆盖率≥80%
+- **G5 Verification Proof** —— 运行 plan 中定义的 verification_command，确认测试通过、lint 通过、覆盖率≥60%
   - **如果失败**：任务进入 `Needs Simplification`，需修复后重新进入 `Executing`
 
 **加载技能：**
@@ -972,7 +972,7 @@ python .harness/agent-guard/cli.py finish TASK-001   # Entropy Review → Done (
 
 | 条件 | 动作 |
 |------|------|
-| 测试通过 + 覆盖率≥80% + 无严重 lint 错误 + 分支未落后 | `auto_merge` |
+| 测试通过 + 覆盖率≥60% + 无严重 lint 错误 + 分支未落后 | `auto_merge` |
 | 测试通过 + 复杂度评分<high | `create_pr` |
 | 测试失败 | `keep_branch` + 创建 issue observation |
 
