@@ -32,7 +32,12 @@ description: 执行实现计划（加载 executing-plans 或 subagent-driven-dev
    - 触发 G4 Surgical Check（diff 范围审查），转换 Executing → Patch Ready
    - 如果 G4 失败（修改了计划外文件），停止并回滚无关修改后重试
    - **不要跳过此步骤。** Snapshot 不会自动进入 Patch Ready。
-10. **状态转换：finish（必须）**
+10. **状态转换：review（必须）**
+    - 所有任务完成后，运行 `python .harness/agent-guard/cli.py review TASK-001`
+    - 触发 Entropy Review，转换 Patch Ready → Entropy Review
+    - 如果 review 失败（熵过高），停止并简化后重试
+    - **不要跳过此步骤。** Snapshot 不会自动进入 Entropy Review。
+11. **状态转换：finish（必须）**
     - 所有任务完成后，运行 `python .harness/agent-guard/cli.py finish TASK-xxx`
     - 触发 G5 Verification Proof（运行验证命令并确认通过），转换 Entropy Review → Done
     - 如果 finish 失败，修复问题后重新运行 `finish`
