@@ -16,8 +16,12 @@ from state_machine import StateMachine
 def main() -> None:
     parser = argparse.ArgumentParser(description="Archive legacy pseudo tasks")
     parser.add_argument("--task", default="TASK-018", help="Task prefix to archive (default: TASK-018)")
+    parser.add_argument("--dry-run", action="store_true", help="Alias for default dry-run mode (no --apply)")
     parser.add_argument("--apply", action="store_true", help="Actually perform archive (default is dry-run)")
     args = parser.parse_args()
+
+    if args.dry_run and args.apply:
+        parser.error("--dry-run and --apply are mutually exclusive")
 
     sm = StateMachine()
     registry_path = sm._registry_file()
