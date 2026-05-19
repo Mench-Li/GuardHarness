@@ -1329,6 +1329,33 @@ def cmd_gate_check(args) -> int:
     return 0 if result["passed"] else 1
 
 
+def cmd_doctor(args) -> int:
+    from doctor import Doctor
+    doc = Doctor()
+    results = doc.check_all(args.task_id, fix=args.fix)
+
+    if args.json:
+        import json as _json
+        print(_json.dumps({"checks": results, "summary": _doctor_summary(results)}, ensure_ascii=False))
+    else:
+        for r in results:
+            level = r["level"].upper()
+            fixed = " [FIXED]" if r.get("fixed") else ""
+            print(f"[{r['task_id']}] {r['check']} {level} {r['message']}{fixed}")
+
+    errors = [r for r in results if r["level"] == "error"]
+    return 1 if errors else 0
+
+
+def _doctor_summary(results: list[dict]) -> dict:
+    summary = {"error": 0, "warning": 0, "fixed": 0}
+    for r in results:
+        summary[r["level"]] = summary.get(r["level"], 0) + 1
+        if r.get("fixed"):
+            summary["fixed"] += 1
+    return summary
+
+
 def cmd_sandbox_create(args) -> int:
     from sandbox import SandboxManager, SandboxError
     from snapshot import SandboxInfo
@@ -1486,6 +1513,12 @@ def main(argv: list[str] | None = None) -> int:
     p_gate.add_argument("gate_name")
     p_gate.add_argument("task_id")
 
+    # doctor
+    p_doctor = subparsers.add_parser("doctor", help="Check consistency of registry, tasks, snapshots, and leases")
+    p_doctor.add_argument("task_id", nargs="?", default=None, help="Optional task ID to check")
+    p_doctor.add_argument("--fix", action="store_true", help="Auto-fix safe issues")
+    p_doctor.add_argument("--json", action="store_true", help="Output JSON")
+
     # sandbox
     p_sandbox = subparsers.add_parser("sandbox", help="Manage task sandboxes")
     sandbox_sub = p_sandbox.add_subparsers(dest="sandbox_cmd", required=True)
@@ -1522,6 +1555,7 @@ def main(argv: list[str] | None = None) -> int:
         "resume": cmd_resume,
         "heartbeat": cmd_heartbeat,
         "gate-check": cmd_gate_check,
+        "doctor": cmd_doctor,
         "sandbox": cmd_sandbox,
     }
 
