@@ -217,6 +217,14 @@ class TestSnapshotManager(unittest.TestCase):
         )
         non_latest = [f for f in files if not f.name.endswith("-latest.yaml")]
         self.assertGreaterEqual(len(non_latest), 3, f"Expected >=3 distinct timestamped snapshots, got {len(non_latest)}: {[f.name for f in non_latest]}")
+        # Verify sequence numbers are monotonic
+        seqs = []
+        for f in non_latest:
+            parts = f.stem.split("-")
+            if len(parts) >= 2 and parts[-1].isdigit():
+                seqs.append(int(parts[-1]))
+        if len(seqs) >= 2:
+            self.assertEqual(sorted(seqs), seqs, "Sequence numbers must be monotonic")
 
     def test_snapshot_with_sandbox_roundtrip(self):
         from snapshot import SandboxInfo

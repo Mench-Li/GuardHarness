@@ -192,9 +192,10 @@ class SnapshotManager:
         return snapshot
 
     def _write_snapshot(self, snapshot: Snapshot) -> None:
-        # Always generate a fresh timestamp to ensure every write creates a new file
         ts = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d-%H%M%S-%f")
-        path_ts = self._snapshot_path(snapshot.task_id, ts)
+        seq = self._next_sequence_number(snapshot.task_id)
+        ts_seq = f"{ts}-{seq:03d}"
+        path_ts = self._snapshot_path(snapshot.task_id, ts_seq)
         with open(path_ts, "w", encoding="utf-8") as f:
             yaml.dump(snapshot.to_dict(), f, allow_unicode=True, sort_keys=False)
 
@@ -217,6 +218,21 @@ class SnapshotManager:
             to_delete = non_latest[keep:]
         for f in to_delete:
             f.unlink()
+
+    def _next_sequence_number(self, task_id: str) -> int:
+        prefix = f"{task_id}-"
+        max_seq = 0
+        for f in self.snapshots_dir.glob(f"{task_id}-*.yaml"):
+            if f.name.endswith("-latest.yaml"):
+                continue
+            stem = f.name[:-5]  # remove .yaml
+            if not stem.startswith(prefix):
+                continue
+            rest = stem[len(prefix):]
+            parts = rest.rsplit("-", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                max_seq = max(max_seq, int(parts[1]))
+        return max_seq + 1
 
     def load_snapshot(self, task_id: str) -> Snapshot:
         """Load the latest snapshot for a task."""
