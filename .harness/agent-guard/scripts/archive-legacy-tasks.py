@@ -51,6 +51,8 @@ def main() -> None:
     for task_id, entry in targets:
         entry["archived"] = True
         entry["archived_reason"] = "legacy_pseudo_task"
+        if entry.get("state") != "Done":
+            entry["state"] = "Done"
         registry[task_id] = entry
 
         task_file = sm._task_file(task_id)
