@@ -65,7 +65,9 @@ def g1_plan_valid(task_id: str, plan_path: str | None = None, **kwargs: Any) -> 
             errors.append(f"Missing required section: {sec}")
 
     # Placeholder check
-    placeholders = re.findall(r"\b(TODO|TBD|FIXME|XXX)\b", content, re.IGNORECASE)
+    # Require a non-word, non-hyphen char before the marker to avoid
+    # false positives on patterns like TASK-xxx (a common task-id placeholder).
+    placeholders = re.findall(r"(?<![-\w])(TODO|TBD|FIXME|XXX)\b", content, re.IGNORECASE)
     if placeholders:
         errors.append(f"Found placeholders: {set(placeholders)}")
 
