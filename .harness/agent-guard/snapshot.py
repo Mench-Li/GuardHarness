@@ -55,6 +55,7 @@ class SandboxInfo:
     branch: str = ""
     created_at: str = ""
     destroyed_at: str = ""
+    no_sandbox: bool = False
 
 
 @dataclass

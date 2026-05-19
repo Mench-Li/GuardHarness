@@ -112,7 +112,7 @@ def _claim_next_task(holder: str | None = None) -> tuple[str, dict[str, Any]]:
 def _parse_plan_progress(plan_path: str) -> PlanProgress:
     """解析 plan 文件，提取 markdown 步骤列表构建 PlanProgress。
 
-    优先识别 ### Task N: 级别的 header 作为 PlanStep，避免将所有 checkbox
+    优先识别 ## Task N: 级别的 header 作为 PlanStep，避免将所有 checkbox
     子步骤都变成独立 step 导致管理粒度太细。
     """
     import re
@@ -120,8 +120,8 @@ def _parse_plan_progress(plan_path: str) -> PlanProgress:
     content = Path(plan_path).read_text(encoding="utf-8")
     lines = content.splitlines()
 
-    # 优先检测 Task 级 header: ### Task N: Title
-    task_header_pattern = re.compile(r"^#{3,4}\s+Task\s+\d+[:：]?\s*(.*)$")
+    # 优先检测 Task 级 header: ## Task N: Title（匹配 2-4 个 #）
+    task_header_pattern = re.compile(r"^#{2,4}\s+Task\s+\d+[:：]?\s*(.*)$")
     steps: list[PlanStep] = []
     for line in lines:
         m = task_header_pattern.match(line)
@@ -818,6 +818,16 @@ def _start_execution(task_id: str, args, auto_claimed: bool = False) -> int:
             # Always release lease on sandbox failure
             lm.force_release(task_id)
             return 1
+
+    if args.no_sandbox:
+        try:
+            from snapshot import SnapshotManager, SandboxInfo
+            snap_mgr = SnapshotManager()
+            snap = snap_mgr.load_snapshot(task_id)
+            snap.sandbox = SandboxInfo(worktree_path=".", no_sandbox=True)
+            snap_mgr._write_snapshot(snap)
+        except Exception as e:
+            print(f"[WARN] Snapshot no-sandbox write failed: {e}", file=sys.stderr)
 
     if not already_executing:
         try:

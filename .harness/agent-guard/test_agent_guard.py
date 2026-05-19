@@ -977,8 +977,8 @@ class TestGetSandboxCwdFailClosed(unittest.TestCase):
             _get_sandbox_cwd("T-NO-SNAP")
         self.assertIn("snapshot", str(ctx.exception).lower())
 
-    def test_done_task_returns_dot(self):
-        """Done task may safely fallback to '.' when snapshot missing."""
+    def test_done_task_returns_cwd(self):
+        """Done task may safely fallback to current working directory when snapshot missing."""
         from gates import _get_sandbox_cwd
         from state_machine import StateMachine, State
 
@@ -991,7 +991,7 @@ class TestGetSandboxCwdFailClosed(unittest.TestCase):
         sm.transition("T-DONE-NO-SNAP", State.DONE, skip_gates=True)
 
         cwd = _get_sandbox_cwd("T-DONE-NO-SNAP")
-        self.assertEqual(cwd, ".")
+        self.assertEqual(cwd, os.getcwd())
 
 
 class TestG5PolicyWarning(unittest.TestCase):
@@ -1142,6 +1142,50 @@ class TestParsePlanProgress(unittest.TestCase):
         self.assertEqual(progress.pending[0].description, "Step A")
         self.assertEqual(progress.pending[1].description, "Step B")
         self.assertEqual(progress.pending[2].description, "Step C")
+
+
+class TestSandboxCwdFallback(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        os.makedirs(".harness/agent-guard/state", exist_ok=True)
+        os.makedirs(".harness/agent-guard/snapshots", exist_ok=True)
+        self.sm = StateMachine()
+        self.snap_mgr = SnapshotManager()
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+
+    def test_get_sandbox_cwd_no_sandbox_flag_returns_cwd(self):
+        """When snapshot has no_sandbox=True, return current working directory."""
+        from snapshot import SandboxInfo
+        self.sm.init_task("T-NS-001")
+        snap = self.snap_mgr.create_snapshot("T-NS-001")
+        snap.sandbox = SandboxInfo(worktree_path=".", no_sandbox=True)
+        self.snap_mgr._write_snapshot(snap)
+
+        cwd = _get_sandbox_cwd("T-NS-001")
+        self.assertEqual(cwd, os.getcwd())
+
+    def test_get_sandbox_cwd_done_task_returns_cwd(self):
+        """Done tasks without sandbox fallback to current directory."""
+        self.sm.init_task("T-DONE-001")
+        self.sm.transition("T-DONE-001", State.PLAN_READY, skip_gates=True)
+        self.sm.transition("T-DONE-001", State.EXECUTING, skip_gates=True)
+        self.sm.transition("T-DONE-001", State.PATCH_READY, skip_gates=True)
+        self.sm.transition("T-DONE-001", State.ENTROPY_REVIEW, skip_gates=True)
+        self.sm.transition("T-DONE-001", State.DONE, skip_gates=True)
+
+        cwd = _get_sandbox_cwd("T-DONE-001")
+        self.assertTrue(cwd)
+
+    def test_get_sandbox_cwd_non_done_no_snapshot_raises(self):
+        """Non-Done tasks without snapshot or worktree still raise RuntimeError."""
+        self.sm.init_task("T-BAD-001")
+        with self.assertRaises(RuntimeError):
+            _get_sandbox_cwd("T-BAD-001")
 
 
 if __name__ == "__main__":

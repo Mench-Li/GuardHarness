@@ -210,10 +210,10 @@ def _get_sandbox_cwd(task_id: str) -> str:
 
     对非 Done 任务，若 snapshot 缺失或路径无效，抛出 RuntimeError 而非静默回退到 "."。
     """
+    import os
     from snapshot import SnapshotManager
     from state_machine import StateMachine, State
 
-    # Check task state first
     sm = StateMachine()
     try:
         task = sm.get_task(task_id)
@@ -224,6 +224,8 @@ def _get_sandbox_cwd(task_id: str) -> str:
     snap_mgr = SnapshotManager()
     try:
         snap = snap_mgr.load_snapshot(task_id)
+        if snap.sandbox and snap.sandbox.no_sandbox:
+            return os.getcwd()
         if snap.sandbox and snap.sandbox.worktree_path:
             path = Path(snap.sandbox.worktree_path)
             if path.exists():
@@ -246,7 +248,7 @@ def _get_sandbox_cwd(task_id: str) -> str:
         return str(mgr._worktree_path(task_id))
 
     if is_done:
-        return "."
+        return os.getcwd()
 
     raise RuntimeError(
         f"Task {task_id} is not Done and has no valid sandbox snapshot or worktree. "
