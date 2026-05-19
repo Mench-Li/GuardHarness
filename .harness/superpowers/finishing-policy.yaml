@@ -37,7 +37,7 @@ proof_of_work:
   - name: "ci_status"
     type: ci_status
     required: true
-    command: "python -c \"import os, sys; sys.exit(0)\""
+    command: "python -c \"import os, sys; ci=os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'); run_id=os.environ.get('GITHUB_RUN_ID'); sys.exit(0 if not ci else (0 if run_id else 1))\""
   - name: "test_coverage"
     type: test_coverage
     threshold: 60
