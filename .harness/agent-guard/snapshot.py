@@ -230,7 +230,7 @@ class SnapshotManager:
                 continue
             rest = stem[len(prefix):]
             parts = rest.rsplit("-", 1)
-            if len(parts) == 2 and parts[1].isdigit():
+            if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 3:
                 max_seq = max(max_seq, int(parts[1]))
         return max_seq + 1
 
