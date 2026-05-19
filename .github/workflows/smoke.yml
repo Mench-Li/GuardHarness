@@ -1,7 +1,7 @@
 name: Smoke Tests
 on: [push, pull_request]
 jobs:
-  smoke:
+  smoke-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -10,10 +10,26 @@ jobs:
           python-version: '3.11'
       - run: pip install pyyaml pytest
       - name: Install script --list
-        run: python install.py --list || true
+        run: python install.py --list
       - name: CLI --help
         run: python .harness/agent-guard/cli.py --help
       - name: Archive script --help
         run: python .harness/agent-guard/scripts/archive-legacy-tasks.py --help
       - name: Archive script dry-run
         run: python .harness/agent-guard/scripts/archive-legacy-tasks.py
+      - name: Doctor check
+        run: python .harness/agent-guard/cli.py doctor --json
+  smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml pytest
+      - name: Install script --list
+        run: python install.py --list
+      - name: CLI --help
+        run: python .harness/agent-guard/cli.py --help
+      - name: Run tests
+        run: pytest .harness/agent-guard/ -q

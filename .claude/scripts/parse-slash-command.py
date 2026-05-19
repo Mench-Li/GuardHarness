@@ -33,7 +33,7 @@ COMMANDS: dict[str, str] = {
         + "You MUST invoke the brainstorming skill via the Skill tool and follow its workflow exactly. "
         "Ask clarifying questions one at a time, propose 2-3 solutions with trade-offs, "
         "clearly mark the simplest option, and save the final spec to docs/superpowers/specs/. "
-        "After completion, run: python .harness/agent-guard/cli.py init TASK-001 --spec docs/superpowers/specs/feature.md"
+        "After completion, run: python .harness/agent-guard/cli.py init TASK-NNN --spec docs/superpowers/specs/feature.md"
     ),
     "/plan-feature": (
         "[Harness] /plan-feature detected. "
@@ -42,7 +42,7 @@ COMMANDS: dict[str, str] = {
         "Read the provided spec, create an implementation plan following plan-schema.yaml constraints, "
         "ensure every task has a verifiable goal (Goal + Verify), no 待办占位符 or placeholders, "
         "and save the plan to docs/superpowers/plans/. "
-        "After completion, run: python .harness/agent-guard/cli.py plan TASK-001 --approve"
+        "After completion, run: python .harness/agent-guard/cli.py plan TASK-NNN --approve"
     ),
     "/execute-plan": (
         "[Harness] /execute-plan detected. "
@@ -50,7 +50,7 @@ COMMANDS: dict[str, str] = {
         + "Determine complexity: if many independent tasks, invoke subagent-driven-development skill; "
         "otherwise invoke executing-plans skill. Execute step by step, run tests after each task, "
         "stop and report on failure, and verify diff only touches planned files (no drive-by refactoring). "
-        "After completion, run: python .harness/agent-guard/cli.py execute TASK-001"
+        "Before execution, run: python .harness/agent-guard/cli.py execute TASK-NNN"
     ),
     "/finish-branch": (
         "[Harness] /finish-branch detected. "
@@ -58,7 +58,7 @@ COMMANDS: dict[str, str] = {
         + "You MUST invoke the finishing-a-development-branch skill. "
         "Run full test suite, check coverage (threshold 80%), run linter, read finishing-policy.yaml, "
         "and auto-decide merge / PR / keep_branch. Then write observation and update CLAUDE.md. "
-        "After completion, run: python .harness/agent-guard/cli.py finish TASK-001"
+        "After completion, run: python .harness/agent-guard/cli.py finish TASK-NNN"
     ),
     "/fix-bug": (
         "[Harness] /fix-bug detected. "
@@ -66,7 +66,7 @@ COMMANDS: dict[str, str] = {
         + "First invoke systematic-debugging skill to find root cause, "
         "then invoke test-driven-development skill to write a failing test before fixing. "
         "Keep the fix minimal, no over-engineering, and write a failure observation afterwards. "
-        "After completion, run: python .harness/agent-guard/cli.py finish TASK-001"
+        "After completion, run: python .harness/agent-guard/cli.py finish TASK-NNN"
     ),
     "/reflect": (
         "[Harness] /reflect detected. "
@@ -76,6 +76,12 @@ COMMANDS: dict[str, str] = {
         "detect cross-project patterns to upgrade to global axioms, and record reflection cost metrics."
     ),
 }
+
+
+def _extract_task_id(text: str) -> str:
+    import re
+    m = re.search(r"TASK-\d+", text)
+    return m.group(0) if m else "TASK-NNN"
 
 
 def _debug_log(msg: str) -> None:
@@ -107,6 +113,8 @@ def main() -> int:
 
     for cmd, system_msg in COMMANDS.items():
         if msg_stripped.startswith(cmd):
+            task_id = _extract_task_id(msg_stripped)
+            system_msg = system_msg.replace("TASK-NNN", task_id)
             payload = json.dumps({"systemMessage": system_msg}, ensure_ascii=False)
             _debug_log(f"Matched {cmd}, injecting systemMessage")
             print(payload)
