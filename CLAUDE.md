@@ -142,7 +142,16 @@ git submodule add <your-org>/team-harness.git .harness/team
 <!-- DYNAMIC-BLOCK: architecture -->
 ## 当前架构快照
 <!-- AUTO-GENERATED: 基于最近 specs 和代码结构自动生成 -->
-<!-- 当前为空，完成首次 /finish-branch 后将自动填充 -->
+
+Agent-Guard 控制平面由以下核心模块组成：
+- **state_machine.py**: 8 状态机（Inbox → Plan Ready → Executing → Patch Ready → Entropy Review → Done，旁路 Blocked / Needs Simplification），基于 JSON registry 持久化。
+- **gates.py**: 5 个硬 Gate（G1-G5），否决权式检查。G5 支持从 plan 文件提取 verification_command 并执行 proof_of_work（coverage / complexity / ci_status）。
+- **snapshot.py**: YAML 格式 Snapshot，支持中断恢复（required_context + recovery_prompt）。v2.8 引入 monotonic sequence number 解决 Windows 微秒碰撞。
+- **sandbox.py**: Git worktree 隔离沙箱，支持 `--no-sandbox` 绕过模式。
+- **cli.py**: 统一命令行入口，覆盖 init/plan/execute/patch/review/finish/status/list/resume/doctor 等子命令。
+- **doctor.py** (v2.8 新增): 一致性检查工具，检测 registry state 与 lease orphan 等已知异常模式，支持 `--fix` 安全修复。
+- **scripts/archive-legacy-tasks.py**: 批量归档历史伪任务，自动同步 registry state 为 Done。
+
 <!-- END-DYNAMIC -->
 
 ---
@@ -150,7 +159,11 @@ git submodule add <your-org>/team-harness.git .harness/team
 <!-- DYNAMIC-BLOCK: recent-decisions -->
 ## 近期重大决策
 <!-- AUTO-GENERATED: 从最近 3 次 finish-branch 的 retro 中提取 -->
-<!-- 当前为空，完成首次 /finish-branch 后将自动填充 -->
+
+- **coverage threshold 降至 60%** (TASK-021): cli.py 体量过大且测试覆盖不足，在完整 CLI 测试补齐前，将 finishing-policy.yaml 的 coverage threshold 从 80% 下调至 60%，避免 finish 被阻断。
+- **finishing-policy 适配本地开发** (TASK-021): ci_status 命令改为本地 no-op；test_coverage 命令显式传入测试目录 `.harness/agent-guard/`；complexity_analysis 使用 `radon` 直接调用而非 `python -m radon`，避免多 Python 版本冲突。
+- **TDD Hard Rule 确认**: 用户明确要求所有代码变更必须测试优先（失败测试 → 确认失败 → 最小实现 → 确认通过），写入 CLAUDE.md taste 区块，优先级高于 skill 默认行为。
+
 <!-- END-DYNAMIC -->
 
 ---
