@@ -1,5 +1,5 @@
 # GuardHarness 文件清单
-# 生成时间: 2026-05-15T09:46:01.967795
+# 生成时间: 2026-05-19T16:30:48.394541
 
 .claude/scripts/auto-observe.ps1
 .claude/scripts/auto-observe.sh
@@ -18,6 +18,7 @@
 .claude/scripts/load-memory-context.sh
 .claude/scripts/parse-slash-command.ps1
 .claude/scripts/parse-slash-command.py
+.claude/scripts/test_parse_slash_command.py
 .claude/settings.json
 .claude/skills/execute-plan/SKILL.md
 .claude/skills/finish-branch/SKILL.md
@@ -26,13 +27,18 @@
 .claude/skills/plan-feature/SKILL.md
 .claude/skills/reflect/SKILL.md
 .harness/agent-guard/cli.py
+.harness/agent-guard/doctor.py
 .harness/agent-guard/gates.py
 .harness/agent-guard/lease.py
 .harness/agent-guard/sandbox.py
+.harness/agent-guard/scripts/archive-legacy-tasks.py
 .harness/agent-guard/snapshot.py
+.harness/agent-guard/state_machine.py
 .harness/agent-guard/test_agent_guard.py
 .harness/agent-guard/test_e2e.py
 .harness/agent-guard/test_sandbox.py
+.harness/agent-guard/tests/test_archive.py
+.harness/agent-guard/tests/test_doctor.py
 .harness/HERMES_COMPAT.md
 .harness/superpowers/design-harness.yaml
 .harness/superpowers/finishing-policy.yaml
@@ -66,6 +72,6 @@
 .harness/workflows/feature-development.md
 .harness/workflows/manual-mode.yaml
 .harness/workflows/model-routing.yaml
-CLAUDE.md
+CLAUDE.md -> .harness/CLAUDE.md
 HARNESS_USAGE_GUIDE.md
-README.md
+README.md -> .harness/README.md
