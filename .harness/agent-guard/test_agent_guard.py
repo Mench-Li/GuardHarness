@@ -1188,5 +1188,27 @@ class TestSandboxCwdFallback(unittest.TestCase):
             _get_sandbox_cwd("T-BAD-001")
 
 
+class TestRunGateExceptionHandling(unittest.TestCase):
+    def test_run_gate_exception_returns_structured_failure(self):
+        """If a gate function raises an exception, run_gate must return structured failure instead of propagating."""
+        from gates import GATE_REGISTRY, run_gate
+
+        def exploding_gate(task_id: str, **kwargs):
+            raise ValueError("intentional explosion")
+
+        original = GATE_REGISTRY.get("g_test_explosion")
+        GATE_REGISTRY["g_test_explosion"] = exploding_gate
+        try:
+            result = run_gate("g_test_explosion", "T-EXP-001")
+            self.assertFalse(result["passed"])
+            self.assertIn("intentional explosion", result["message"])
+            self.assertIn("traceback", result.get("details", {}))
+        finally:
+            if original:
+                GATE_REGISTRY["g_test_explosion"] = original
+            else:
+                del GATE_REGISTRY["g_test_explosion"]
+
+
 if __name__ == "__main__":
     unittest.main()

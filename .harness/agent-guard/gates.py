@@ -512,4 +512,14 @@ def run_gate(gate_name: str, task_id: str, **kwargs: Any) -> dict[str, Any]:
             "details": {},
             "blocking": GATE_BLOCKING.get(gate_name, True),
         }
-    return GATE_REGISTRY[gate_name](task_id, **kwargs)
+    try:
+        return GATE_REGISTRY[gate_name](task_id, **kwargs)
+    except Exception as exc:
+        import traceback
+        return {
+            "gate": gate_name,
+            "passed": False,
+            "message": f"Gate execution failed: {exc}",
+            "details": {"traceback": traceback.format_exc()},
+            "blocking": GATE_BLOCKING.get(gate_name, True),
+        }
