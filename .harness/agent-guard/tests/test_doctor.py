@@ -114,6 +114,71 @@ class TestDoctorChecks(unittest.TestCase):
         lease = lm.get_lease("T-DOC-004")
         self.assertIsNone(lease)
 
+    def test_detects_missing_proof_of_work_tool(self):
+        """Doctor reports warning when finishing-policy.yaml tools are missing."""
+        self.sm.init_task("T-DOC-005")
+        policy_dir = Path(self.tmpdir.name) / "superpowers"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        policy_path = policy_dir / "finishing-policy.yaml"
+        policy_path.write_text("""
+proof_of_work:
+  - name: complexity_analysis
+    command: "radon cc . -a -nc"
+""", encoding="utf-8")
+
+        import shutil
+        original_which = shutil.which
+        def mock_which(cmd, *args, **kwargs):
+            if cmd == "radon":
+                return None
+            return original_which(cmd, *args, **kwargs)
+
+        try:
+            shutil.which = mock_which
+            results = self.doc.check_all("T-DOC-005")
+            warnings = [r for r in results if r["level"] == "warning"]
+            self.assertTrue(any("missing_proof_of_work_tool" in r["check"] for r in warnings))
+            self.assertTrue(any("radon" in r["message"] for r in warnings))
+        finally:
+            shutil.which = original_which
+
+    def test_detects_parent_children_state_sync(self):
+        """Doctor reports warning when parent state lags behind completed children."""
+        self.sm.init_task("T-PARENT-001")
+        self.sm.init_task("T-CHILD-001")
+        registry_path = self.sm._registry_file()
+        with open(registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+        registry["T-PARENT-001"]["children"] = ["T-CHILD-001"]
+        registry["T-CHILD-001"]["state"] = "Done"
+        with open(registry_path, "w", encoding="utf-8") as f:
+            json.dump(registry, f)
+
+        results = self.doc.check_all("T-PARENT-001")
+        warnings = [r for r in results if r["level"] == "warning"]
+        self.assertTrue(any("parent_children_state_sync" in r["check"] for r in warnings))
+        self.assertIn("T-PARENT-001", [r["message"] for r in warnings][0])
+
+    def test_fix_parent_children_state_sync(self):
+        """Doctor --fix advances parent state when all children are Done."""
+        self.sm.init_task("T-PARENT-002")
+        self.sm.init_task("T-CHILD-002")
+        registry_path = self.sm._registry_file()
+        with open(registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+        registry["T-PARENT-002"]["children"] = ["T-CHILD-002"]
+        registry["T-CHILD-002"]["state"] = "Done"
+        with open(registry_path, "w", encoding="utf-8") as f:
+            json.dump(registry, f)
+
+        results = self.doc.check_all("T-PARENT-002", fix=True)
+        fixed = [r for r in results if r.get("fixed")]
+        self.assertTrue(any("parent_children_state_sync" in r["check"] for r in fixed))
+
+        with open(registry_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+        self.assertEqual(registry["T-PARENT-002"]["state"], "Done")
+
 
 if __name__ == "__main__":
     unittest.main()
