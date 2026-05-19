@@ -456,8 +456,14 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
             for check in pow_checks:
                 check_cmd = check.get("command", "")
                 check_name = check.get("name", "unnamed")
+                check_type = check.get("type", "")
+
+                if not check_cmd and check_type == "ci_status":
+                    check_cmd = "python -c \"import os, sys; sys.exit(0 if (os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS')) else 1)\""
+
                 if not check_cmd:
                     continue
+
                 check_result = subprocess.run(
                     check_cmd,
                     shell=True,
@@ -466,16 +472,63 @@ def g5_verification_proof(task_id: str, verification_command: str | None = None,
                     timeout=300,
                     cwd=cwd if cwd and cwd != "." else None,
                 )
-                if check_result.returncode != 0:
+
+                # Parse type-specific results
+                if check_type == "test_coverage":
+                    match = re.search(r'(\d+)%', check_result.stdout + check_result.stderr)
+                    if match:
+                        coverage = int(match.group(1))
+                        threshold = check.get("threshold", 80)
+                        if coverage < threshold:
+                            return {
+                                "passed": False,
+                                "message": f"Proof of work '{check_name}' failed: coverage {coverage}% < threshold {threshold}%",
+                                "details": {
+                                    "command": check_cmd,
+                                    "coverage": coverage,
+                                    "threshold": threshold,
+                                    "stdout": check_result.stdout[:2000],
+                                    "stderr": check_result.stderr[:2000],
+                                },
+                                "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+                            }
+                    elif check_result.returncode != 0:
+                        return {
+                            "passed": False,
+                            "message": f"Proof of work '{check_name}' failed (exit {check_result.returncode})",
+                            "details": {"command": check_cmd, "stdout": check_result.stdout[:2000], "stderr": check_result.stderr[:2000]},
+                            "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+                        }
+                elif check_type == "complexity_analysis":
+                    match = re.search(r'Average complexity:\s*(\d+\.?\d*)', check_result.stdout + check_result.stderr)
+                    if match:
+                        avg_cc = float(match.group(1))
+                        max_cc = check.get("max_cyclomatic", 10)
+                        if avg_cc > max_cc:
+                            return {
+                                "passed": False,
+                                "message": f"Proof of work '{check_name}' failed: avg complexity {avg_cc} > max {max_cc}",
+                                "details": {
+                                    "command": check_cmd,
+                                    "average_complexity": avg_cc,
+                                    "max_cyclomatic": max_cc,
+                                    "stdout": check_result.stdout[:2000],
+                                    "stderr": check_result.stderr[:2000],
+                                },
+                                "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+                            }
+                    elif check_result.returncode != 0:
+                        return {
+                            "passed": False,
+                            "message": f"Proof of work '{check_name}' failed (exit {check_result.returncode})",
+                            "details": {"command": check_cmd, "stdout": check_result.stdout[:2000], "stderr": check_result.stderr[:2000]},
+                            "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
+                        }
+                elif check_result.returncode != 0:
                     return {
                         "passed": False,
                         "message": f"Proof of work '{check_name}' failed (exit {check_result.returncode})",
-                        "details": {
-                            "command": check_cmd,
-                            "exit_code": check_result.returncode,
-                            "stdout": check_result.stdout[:2000],
-                            "stderr": check_result.stderr[:2000],
-                        },
+                        "details": {"command": check_cmd, "stdout": check_result.stdout[:2000], "stderr": check_result.stderr[:2000]},
                         "blocking": GATE_BLOCKING.get("g5_verification_proof", True),
                     }
         except Exception as e:

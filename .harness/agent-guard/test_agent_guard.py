@@ -1210,5 +1210,73 @@ class TestRunGateExceptionHandling(unittest.TestCase):
                 del GATE_REGISTRY["g_test_explosion"]
 
 
+class TestG5ProofOfWork(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+        os.environ["GUARDHARNESS_ROOT"] = self.tmpdir.name
+        self.sm = StateMachine(self.tmpdir.name)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        self.tmpdir.cleanup()
+        os.environ.pop("GUARDHARNESS_ROOT", None)
+
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g5_coverage_below_threshold_fails(self, mock_cwd):
+        """G5 must fail when coverage is below threshold."""
+        from gates import g5_verification_proof
+        self.sm.init_task("T-G5-002")
+        plan_dir = Path(self.tmpdir.name) / "docs" / "superpowers" / "plans"
+        plan_dir.mkdir(parents=True)
+        plan_path = plan_dir / "T-G5-002-plan.md"
+        plan_path.write_text(
+            "# Plan\n\n## verification_command\necho ok\n\n## success_criteria\nok\n",
+            encoding="utf-8",
+        )
+        policy_dir = Path(self.tmpdir.name) / ".harness" / "superpowers"
+        policy_dir.mkdir(parents=True)
+        policy_path = policy_dir / "finishing-policy.yaml"
+        policy_path.write_text(
+            "proof_of_work:\n"
+            "  - name: test_coverage\n"
+            "    type: test_coverage\n"
+            "    threshold: 80\n"
+            "    command: \"echo 'coverage: 50%'\"\n",
+            encoding="utf-8",
+        )
+        result = g5_verification_proof("T-G5-002")
+        self.assertFalse(result["passed"], f"Expected fail due to low coverage: {result}")
+        self.assertIn("coverage", result["message"].lower())
+
+    @patch("gates._get_sandbox_cwd", return_value=".")
+    def test_g5_complexity_above_max_fails(self, mock_cwd):
+        """G5 must fail when complexity exceeds max."""
+        from gates import g5_verification_proof
+        self.sm.init_task("T-G5-003")
+        plan_dir = Path(self.tmpdir.name) / "docs" / "superpowers" / "plans"
+        plan_dir.mkdir(parents=True)
+        plan_path = plan_dir / "T-G5-003-plan.md"
+        plan_path.write_text(
+            "# Plan\n\n## verification_command\necho ok\n\n## success_criteria\nok\n",
+            encoding="utf-8",
+        )
+        policy_dir = Path(self.tmpdir.name) / ".harness" / "superpowers"
+        policy_dir.mkdir(parents=True)
+        policy_path = policy_dir / "finishing-policy.yaml"
+        policy_path.write_text(
+            "proof_of_work:\n"
+            "  - name: complexity_analysis\n"
+            "    type: complexity_analysis\n"
+            "    max_cyclomatic: 10\n"
+            "    command: \"echo 'Average complexity: 15.0'\"\n",
+            encoding="utf-8",
+        )
+        result = g5_verification_proof("T-G5-003")
+        self.assertFalse(result["passed"], f"Expected fail due to high complexity: {result}")
+        self.assertIn("complexity", result["message"].lower())
+
+
 if __name__ == "__main__":
     unittest.main()

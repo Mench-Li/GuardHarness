@@ -34,12 +34,18 @@ auto_decision_rules:
       - detect_entropy: true
 
 proof_of_work:
-  - type: ci_status
+  - name: "ci_status"
+    type: ci_status
     required: true
-  - type: test_coverage
+    command: "python -c \"import os, sys; sys.exit(0 if (os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS')) else 1)\""
+  - name: "test_coverage"
+    type: test_coverage
     threshold: 80
-  - type: complexity_analysis
+    command: "pytest --cov=.harness/agent-guard --cov-report=term-missing -q"
+  - name: "complexity_analysis"
+    type: complexity_analysis
     max_cyclomatic: 10
+    command: "python -m radon cc .harness/agent-guard/ -a -nc"
 
   - name: "auto_observe"
     condition:
