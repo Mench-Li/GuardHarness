@@ -51,6 +51,7 @@ EXCLUDE_PATHS = {
     ".harness/agent-guard/leases",
     ".harness/agent-guard/snapshots",
     ".harness/agent-guard/patches",
+    ".claude/scripts/hook-debug.log",
 }
 
 COPY_ITEMS: list[tuple[str, str]] = [

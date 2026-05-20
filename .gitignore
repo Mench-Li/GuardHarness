@@ -8,3 +8,5 @@
 .claude/scripts/hook-debug.log
 __pycache__/
 *.pyc
+.coverage
+htmlcov/
