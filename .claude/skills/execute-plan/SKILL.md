@@ -33,7 +33,7 @@ description: 执行实现计划（加载 executing-plans 或 subagent-driven-dev
    - 如果 G4 失败（修改了计划外文件），停止并回滚无关修改后重试
    - **不要跳过此步骤。** Snapshot 不会自动进入 Patch Ready。
 10. **状态转换：review（必须）**
-    - 所有任务完成后，运行 `python .harness/agent-guard/cli.py review TASK-001`
+    - 所有任务完成后，运行 `python .harness/agent-guard/cli.py review TASK-xxx`
     - 触发 Entropy Review，转换 Patch Ready → Entropy Review
     - 如果 review 失败（熵过高），停止并简化后重试
     - **不要跳过此步骤。** Snapshot 不会自动进入 Entropy Review。
