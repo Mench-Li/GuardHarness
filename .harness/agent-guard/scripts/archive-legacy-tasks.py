@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--task", default="TASK-018", help="Task prefix to archive (default: TASK-018)")
     parser.add_argument("--dry-run", action="store_true", help="Alias for default dry-run mode (no --apply)")
     parser.add_argument("--apply", action="store_true", help="Actually perform archive (default is dry-run)")
+    parser.add_argument("--include-archived", action="store_true", help="Include already-archived tasks")
     args = parser.parse_args()
 
     if args.dry_run and args.apply:
@@ -37,6 +38,7 @@ def main() -> None:
         if tid.startswith(f"{args.task}-")
         and isinstance(entry, dict)
         and entry.get("parent") == args.task
+        and (args.include_archived or not entry.get("archived"))
     ]
 
     if not args.apply:

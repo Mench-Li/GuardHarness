@@ -53,3 +53,29 @@ class TestArchiveLegacyTasks(unittest.TestCase):
             tid = f"TASK-ARCH-001-Step-{i}"
             self.assertEqual(registry[tid]["state"], "Done", f"{tid} should be Done after archive")
             self.assertTrue(registry[tid]["archived"])
+
+    def test_dry_run_excludes_already_archived_tasks(self):
+        """--dry-run should skip already-archived tasks by default."""
+        self.sm.init_task("TASK-ARCH-002")
+        # Create two child tasks: one already archived, one not
+        for tid, archived in [("TASK-ARCH-002-Step-0", True), ("TASK-ARCH-002-Step-1", False)]:
+            self.sm.init_task(tid)
+            registry_path = self.sm._registry_file()
+            with open(registry_path, "r", encoding="utf-8") as f:
+                registry = json.load(f)
+            registry[tid]["parent"] = "TASK-ARCH-002"
+            if archived:
+                registry[tid]["archived"] = True
+                registry[tid]["state"] = "Done"
+            with open(registry_path, "w", encoding="utf-8") as f:
+                json.dump(registry, f)
+
+        script = Path(".harness/agent-guard/scripts/archive-legacy-tasks.py")
+        result = subprocess.run(
+            ["python", str(script), "--task", "TASK-ARCH-002", "--dry-run"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"Script failed: {result.stderr}")
+        self.assertIn("TASK-ARCH-002-Step-1", result.stdout)
+        self.assertNotIn("TASK-ARCH-002-Step-0", result.stdout)
