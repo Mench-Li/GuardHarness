@@ -20,6 +20,10 @@ class Doctor:
         registry = self._load_registry()
         task_ids = [task_id] if task_id else list(registry.keys())
 
+        r = self._check_missing_proof_of_work_tool()
+        if r:
+            results.append(r)
+
         for tid in task_ids:
             entry = registry.get(tid, {})
             r = self._check_archived_state_mismatch(tid, entry, fix)
@@ -32,9 +36,6 @@ class Doctor:
             if r:
                 results.append(r)
             r = self._check_snapshot_sandbox_stale(tid)
-            if r:
-                results.append(r)
-            r = self._check_missing_proof_of_work_tool(tid)
             if r:
                 results.append(r)
             r = self._check_parent_children_state_sync(tid, entry, registry, fix)
@@ -145,7 +146,7 @@ class Doctor:
             "fixed": False,
         }
 
-    def _check_missing_proof_of_work_tool(self, task_id: str) -> dict[str, Any] | None:
+    def _check_missing_proof_of_work_tool(self) -> dict[str, Any] | None:
         policy_path = self.base_dir.parent / "superpowers" / "finishing-policy.yaml"
         if not policy_path.exists():
             policy_path = self.base_dir / "superpowers" / "finishing-policy.yaml"
@@ -172,7 +173,7 @@ class Doctor:
         if missing:
             unique_missing = sorted(set(missing))
             return {
-                "task_id": task_id,
+                "task_id": "project",
                 "check": "missing_proof_of_work_tool",
                 "level": "warning",
                 "message": f"Missing tools: {', '.join(unique_missing)}; install with: pip install {' '.join(unique_missing)}",

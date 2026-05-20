@@ -179,6 +179,37 @@ proof_of_work:
             registry = json.load(f)
         self.assertEqual(registry["T-PARENT-002"]["state"], "Done")
 
+    def test_missing_proof_of_work_tool_reported_once_for_many_tasks(self):
+        """Project-level tool check emits exactly one warning regardless of task count."""
+        self.sm.init_task("T-DOC-006")
+        self.sm.init_task("T-DOC-007")
+        self.sm.init_task("T-DOC-008")
+        policy_dir = Path(self.tmpdir.name) / "superpowers"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        policy_path = policy_dir / "finishing-policy.yaml"
+        policy_path.write_text("""
+proof_of_work:
+  - name: complexity_analysis
+    command: "radon cc . -a -nc"
+""", encoding="utf-8")
+
+        import shutil
+        original_which = shutil.which
+        def mock_which(cmd, *args, **kwargs):
+            if cmd == "radon":
+                return None
+            return original_which(cmd, *args, **kwargs)
+
+        try:
+            shutil.which = mock_which
+            results = self.doc.check_all()
+            warnings = [r for r in results if r["check"] == "missing_proof_of_work_tool"]
+            self.assertEqual(len(warnings), 1)
+            self.assertEqual(warnings[0]["task_id"], "project")
+            self.assertIn("radon", warnings[0]["message"])
+        finally:
+            shutil.which = original_which
+
 
 if __name__ == "__main__":
     unittest.main()
